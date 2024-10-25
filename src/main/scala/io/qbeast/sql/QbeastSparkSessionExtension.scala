@@ -19,12 +19,34 @@ import io.delta.sql.DeltaSparkSessionExtension
 import io.qbeast.internal.rules.QbeastAnalysis
 import io.qbeast.internal.rules.SampleRule
 import io.qbeast.internal.rules.SaveAsTableRule
+import org.apache.spark.sql.hudi.HoodieSparkSessionExtension
 import org.apache.spark.sql.SparkSessionExtensions
 
 /**
  * Qbeast rules extension to spark query analyzer/optimizer/planner
  */
 class QbeastSparkSessionExtension extends DeltaSparkSessionExtension {
+
+  override def apply(extensions: SparkSessionExtensions): Unit = {
+
+    super.apply(extensions)
+
+    extensions.injectResolutionRule { session =>
+      new QbeastAnalysis(session)
+    }
+
+    extensions.injectOptimizerRule { session =>
+      new SampleRule(session)
+    }
+
+    extensions.injectOptimizerRule { session =>
+      new SaveAsTableRule(session)
+    }
+  }
+
+}
+
+class HudiQbeastSparkSessionExtension extends HoodieSparkSessionExtension {
 
   override def apply(extensions: SparkSessionExtensions): Unit = {
 

@@ -31,6 +31,8 @@ lazy val qbeastSpark = (project in file("."))
       sparkCore % Provided,
       sparkSql % Provided,
       deltaSpark % Provided,
+      hudi % Provided,
+      hive % Provided,
       sparkml % Test,
       hadoopAws % Test),
     Test / parallelExecution := false,
