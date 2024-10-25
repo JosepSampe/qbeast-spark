@@ -20,13 +20,17 @@ import org.apache.avro.generic.GenericData
 import org.apache.avro.generic.GenericRecord
 import org.apache.avro.Schema
 import org.apache.hudi.client.common.HoodieSparkEngineContext
+import org.apache.hudi.client.SparkRDDWriteClient
 import org.apache.hudi.common.model.DefaultHoodieRecordPayload
 import org.apache.hudi.common.model.HoodieAvroPayload
 import org.apache.hudi.common.model.HoodieAvroRecord
 import org.apache.hudi.common.model.HoodieCommitMetadata
 import org.apache.hudi.common.model.HoodieKey
 import org.apache.hudi.common.model.HoodieRecord
-import org.apache.hudi.common.table.timeline.{HoodieActiveTimeline, HoodieInstant, HoodieTimeline}
+import org.apache.hudi.common.model.OverwriteWithLatestAvroPayload
+import org.apache.hudi.common.table.timeline.HoodieActiveTimeline
+import org.apache.hudi.common.table.timeline.HoodieInstant
+import org.apache.hudi.common.table.timeline.HoodieTimeline
 import org.apache.hudi.common.table.HoodieTableMetaClient
 import org.apache.hudi.common.util.Option
 import org.apache.hudi.config.HoodieWriteConfig
@@ -36,6 +40,7 @@ import org.apache.hudi.metadata.SparkHoodieBackedTableMetadataWriter
 import org.apache.hudi.storage.StoragePath
 import org.apache.hudi.table.HoodieSparkTable
 import org.apache.hudi.HoodieCLIUtils
+import org.apache.spark.api.java.JavaRDD
 import org.apache.spark.api.java.JavaSparkContext
 import org.apache.spark.sql.catalyst.TableIdentifier
 import org.apache.spark.sql.delta.DeltaLog
@@ -195,6 +200,11 @@ class QbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec with Catalo
             createHoodieRecord("2", "Bob", 1633122000000L, schema))
         println(recordsRDD)
 
+        val hoodieRecords: JavaRDD[HoodieRecord[HoodieAvroPayload]] = jsc.parallelize(
+          List(
+            createHoodieRecord("1", "Alice", 1633035600000L, schema),
+            createHoodieRecord("2", "Bob", 1633122000000L, schema)))
+
         println(metadataWriter.isInitialized)
 
         // Create HoodieListData instance
@@ -209,17 +219,23 @@ class QbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec with Catalo
         println(timeline)
 
         // Create a new commit instant
-        timeline.createNewInstant(new HoodieInstant(true, HoodieTimeline.COMMIT_ACTION, commitTime))
+        timeline.createNewInstant(
+          new HoodieInstant(true, HoodieTimeline.COMMIT_ACTION, commitTime))
 
         // metadataWriter.update(commitMetadata, recordsRDD.asJava, commitTime)
 
         // Save the commit metadata as complete
         timeline.saveAsComplete(
           new HoodieInstant(true, HoodieTimeline.COMMIT_ACTION, commitTime),
-          Option.of(commitMetadata.toJsonString.getBytes)
-        )
+          Option.of(commitMetadata.toJsonString.getBytes))
         println(metadataPath)
         println(s"Metadata commit $commitTime successful")
+
+        val writeClient =
+          new SparkRDDWriteClient[HoodieAvroPayload](engineContext, writeConfig)
+        println(writeClient)
+
+        writeClient.insertOverwrite(hoodieRecords, commitTime)
 
         println(commitTime)
 
