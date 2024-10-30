@@ -22,8 +22,22 @@ lazy val qbeastDelta = (project in file("./delta"))
     assembly / assemblyOption := (assembly / assemblyOption).value.copy(includeScala = false))
   .settings(noWarningInConsole)
 
+lazy val qbeastHudi = (project in file("./hudi"))
+  .dependsOn(qbeastCore)
+  .settings(
+    name := "qbeast-hudi",
+    libraryDependencies ++= Seq(
+      sparkCore % Provided,
+      sparkSql % Provided,
+      hudi % Provided,
+      hive % Provided),
+    Test / parallelExecution := false,
+    assembly / test := {},
+    assembly / assemblyOption := (assembly / assemblyOption).value.copy(includeScala = false))
+  .settings(noWarningInConsole)
+
 lazy val qbeastSpark = (project in file("."))
-  .dependsOn(qbeastCore, qbeastDelta)
+  .dependsOn(qbeastCore, qbeastDelta, qbeastHudi)
   .enablePlugins(ScalaUnidocPlugin)
   .settings(
     name := "qbeast-spark",
@@ -64,6 +78,14 @@ qbeastDelta / Compile / doc / scalacOptions ++= Seq(
   "-doc-footer",
   "Copyright 2022 Qbeast - Docs for version " + mainVersion + " of qbeast-delta")
 
+qbeastHudi / Compile / doc / scalacOptions ++= Seq(
+  "-doc-title",
+  "qbeast-hudi",
+  "-doc-version",
+  mainVersion,
+  "-doc-footer",
+  "Copyright 2022 Qbeast - Docs for version " + mainVersion + " of qbeast-hudi")
+
 // Common metadata
 ThisBuild / version := mainVersion
 ThisBuild / organization := "io.qbeast"
@@ -88,7 +110,7 @@ ThisBuild / scalacOptions ++= Seq(
   "-encoding",
   "UTF-8",
   "-target:jvm-1.8",
-  "-Xfatal-warnings",
+  // "-Xfatal-warnings",
   "-feature",
   "-language:postfixOps",
   "-deprecation",

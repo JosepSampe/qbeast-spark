@@ -40,13 +40,18 @@ trait RollupDataWriter extends DataWriter {
   type Extract = InternalRow => (InternalRow, Weight, CubeId, CubeId)
   type WriteRows = Iterator[InternalRow] => Iterator[(IndexFile, TaskStats)]
 
+  protected def rollupDataset(data: DataFrame, tableChanges: TableChanges): DataFrame = {
+    val extendedData = extendDataWithCubeToRollup(data, tableChanges)
+    extendedData
+  }
+
   protected def internalWrite(
       tableId: QTableID,
       schema: StructType,
       data: DataFrame,
       tableChanges: TableChanges,
       trackers: Seq[WriteJobStatsTracker]): IISeq[(IndexFile, TaskStats)] = {
-    val extendedData = extendDataWithCubeToRollup(data, tableChanges)
+    val extendedData = rollupDataset(data, tableChanges)
     val revision = tableChanges.updatedRevision
     val getCubeMaxWeight = { cubeId: CubeId =>
       tableChanges.cubeWeight(cubeId).getOrElse(Weight.MaxValue)
