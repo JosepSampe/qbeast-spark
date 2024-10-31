@@ -19,6 +19,7 @@ import com.fasterxml.jackson.core.JsonFactory
 import io.qbeast.core.model._
 import io.qbeast.core.model.PreCommitHook.PreCommitHookOutput
 import io.qbeast.spark.internal.QbeastOptions
+import io.qbeast.spark.utils.MetadataConfig
 import io.qbeast.spark.utils.TagUtils
 import io.qbeast.spark.writer.StatsTracker.registerStatsTrackers
 import io.qbeast.IISeq
@@ -79,7 +80,7 @@ private[hudi] case class HudiMetadataWriter(
     extends QbeastMetadataOperation
     with Logging {
 
-  // private def isOverwriteOperation: Boolean = mode == SaveMode.Overwrite
+  // private def isOverwriteMode: Boolean = mode == SaveMode.Overwrite
 
   private val sparkSession = SparkSession.active
   private val jsonFactory = new JsonFactory()
@@ -294,8 +295,13 @@ private[hudi] case class HudiMetadataWriter(
         TagUtils.blocks -> mapper.readTree(encodeBlocks(indexFile.blocks)))
       qbeastMetadata += (indexFile.path -> metadata)
     })
+    extraMeta.put(MetadataConfig.cubes, mapper.writeValueAsString(qbeastMetadata))
 
-    extraMeta.put("qbeastMetadata", mapper.writeValueAsString(qbeastMetadata))
+    val baseConfiguration: Configuration = Map.empty
+    val qbeastRevisions = updateQbeastRevision(baseConfiguration, tableChanges.updatedRevision)
+
+    extraMeta.put(MetadataConfig.lastRevisionID, tableChanges.updatedRevision.revisionID.toString)
+    extraMeta.put(MetadataConfig.revisions, mapper.writeValueAsString(qbeastRevisions))
 
     val writeStatusRdd = jsc.parallelize(writeStatusList)
 

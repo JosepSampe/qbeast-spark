@@ -4,11 +4,15 @@ import io.qbeast.core.model._
 import io.qbeast.spark.index.IndexStatusBuilder
 import io.qbeast.spark.utils.MetadataConfig
 import io.qbeast.IISeq
+import org.apache.avro.Schema
 import org.apache.hadoop.fs.Path
 import org.apache.hudi.common.model.HoodieCommitMetadata
+import org.apache.hudi.common.table.timeline.HoodieTimeline
 import org.apache.hudi.common.table.HoodieTableMetaClient
 import org.apache.hudi.hadoop.fs.HadoopFSUtils
+import org.apache.hudi.storage.StoragePath
 import org.apache.spark.api.java.JavaSparkContext
+import org.apache.spark.sql.avro.SchemaConverters
 import org.apache.spark.sql.types.StructType
 import org.apache.spark.sql.AnalysisExceptionFactory
 import org.apache.spark.sql.DataFrame
@@ -29,31 +33,64 @@ case class HudiQbeastSnapshot(tableID: QTableID) extends QbeastSnapshot {
    * @return
    */
   override def isInitial: Boolean = {
-    val metaClient = loadMetaClient(tableID)
-    val timeline = metaClient.getActiveTimeline.getCommitsTimeline.filterCompletedInstants
+    val timeline = loadTimeline()
     val lastInstantOption = if (timeline.empty) None else Some(timeline.lastInstant.get)
     lastInstantOption.isEmpty
   }
 
   override lazy val schema: StructType = {
-    spark.read.format("hudi").load(tableID.id).schema
+    val schemaString = metadataMap(HoodieCommitMetadata.SCHEMA_KEY)
+    val avroSchema = new Schema.Parser().parse(schemaString)
+    SchemaConverters.toSqlType(avroSchema).dataType.asInstanceOf[StructType]
   }
 
   override lazy val allFilesCount: Long = {
-    spark.read.format("hudi").load(tableID.id).count()
+    val timeline = loadTimeline()
+    val lastInstant = timeline.filterCompletedInstants.lastInstant()
+    if (lastInstant.isPresent) {
+      val commitMetadataBytes = timeline.getInstantDetails(lastInstant.get()).get()
+      val commitMetadata =
+        HoodieCommitMetadata.fromBytes(commitMetadataBytes, classOf[HoodieCommitMetadata])
+      val basePath = new StoragePath(tableID.id)
+      commitMetadata.getFileIdAndFullPaths(basePath).keySet().size()
+    } else {
+      0
+    }
   }
 
   private val metadataMap: Map[String, String] = {
-    loadMetaClient(tableID).getTableConfig.getProps.asScala.toMap
+    val timeline = loadTimeline()
+    val lastInstant = timeline.filterCompletedInstants.lastInstant()
+    if (lastInstant.isPresent) {
+      val commitMetadataBytes = timeline.getInstantDetails(lastInstant.get()).get()
+      val commitMetadata =
+        HoodieCommitMetadata.fromBytes(commitMetadataBytes, classOf[HoodieCommitMetadata])
+      commitMetadata.getExtraMetadata.asScala.toMap
+    } else {
+      Map.empty
+    }
   }
 
-  override def loadProperties: Map[String, String] = metadataMap
+  override def loadProperties: Map[String, String] = {
+    // Check if it is required to load more props from metadataMap
+    loadMetaClient().getTableConfig.getProps.asScala.toMap
+  }
 
-  override def loadDescription: String = "Hudi table snapshot"
+  override def loadDescription: String = s"Hudi table snapshot at ${tableID.id}"
 
   // Revision map based on metadata properties
   private val revisionsMap: Map[RevisionID, Revision] = {
-    val listRevisions = metadataMap.filterKeys(_.startsWith(MetadataConfig.revision))
+    val revisionsMetadata = if (metadataMap.contains(MetadataConfig.revisions)) {
+      mapper
+        .readTree(metadataMap(MetadataConfig.revisions))
+        .fields()
+        .asScala
+        .map(entry => entry.getKey -> entry.getValue.asText())
+        .toMap
+    } else {
+      Map.empty
+    }
+    val listRevisions = revisionsMetadata.filterKeys(_.startsWith(MetadataConfig.revision))
     listRevisions.map { case (key, json) =>
       val revisionID = key.split('.').last.toLong
       val revision = mapper.readValue[Revision](json, classOf[Revision])
@@ -61,12 +98,16 @@ case class HudiQbeastSnapshot(tableID: QTableID) extends QbeastSnapshot {
     }
   }
 
-  private def loadMetaClient(tableID: QTableID): HoodieTableMetaClient = {
+  private def loadMetaClient(): HoodieTableMetaClient = {
     HoodieTableMetaClient
       .builder()
       .setConf(HadoopFSUtils.getStorageConfWithCopy(jsc.hadoopConfiguration()))
       .setBasePath(tableID.id)
       .build()
+  }
+
+  private def loadTimeline(): HoodieTimeline = {
+    loadMetaClient().getActiveTimeline.getCommitTimeline.filterCompletedInstants
   }
 
   private val lastRevisionID: RevisionID =
@@ -99,7 +140,7 @@ case class HudiQbeastSnapshot(tableID: QTableID) extends QbeastSnapshot {
   }
 
   private def loadFilesForRevision(revisionID: RevisionID): Dataset[String] = {
-    val metaClient = loadMetaClient(tableID)
+    val metaClient = loadMetaClient()
     val timeline = metaClient.getActiveTimeline.getCommitTimeline.filterCompletedInstants
     val lastCommitInstant = timeline.lastInstant().get()
 

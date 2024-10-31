@@ -44,11 +44,11 @@ import org.apache.hudi.table.HoodieSparkTable
 import org.apache.hudi.HoodieCLIUtils
 import org.apache.spark.api.java.JavaRDD
 import org.apache.spark.api.java.JavaSparkContext
+import org.apache.spark.sql.avro.SchemaConverters
 import org.apache.spark.sql.DataFrame
 import org.apache.spark.sql.Row
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.SparkConf
-import org.apache.spark.sql.avro.SchemaConverters
 
 import java.io.File
 import java.nio.file.Paths

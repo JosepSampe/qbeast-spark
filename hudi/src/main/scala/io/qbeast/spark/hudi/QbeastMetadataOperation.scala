@@ -40,7 +40,7 @@ private[hudi] trait QbeastMetadataOperation extends StagingUtils {
    * @return
    *   same data type set to null
    */
-  private def asNullable(dataType: DataType): DataType = {
+  protected def asNullable(dataType: DataType): DataType = {
     dataType match {
       case array: ArrayType => array.copy(containsNull = true)
       case map: MapType => map.copy(valueContainsNull = true)
@@ -48,7 +48,7 @@ private[hudi] trait QbeastMetadataOperation extends StagingUtils {
     }
   }
 
-  private def overwriteQbeastConfiguration(baseConfiguration: Configuration): Configuration = {
+  protected def overwriteQbeastConfiguration(baseConfiguration: Configuration): Configuration = {
     val revisionKeys = baseConfiguration.keys.filter(_.startsWith(MetadataConfig.revision))
     val other = baseConfiguration.keys.filter(_ == MetadataConfig.lastRevisionID)
     val qbeastKeys = revisionKeys ++ other
@@ -62,7 +62,7 @@ private[hudi] trait QbeastMetadataOperation extends StagingUtils {
    * @param newRevision
    *   the new revision
    */
-  private def updateQbeastRevision(
+  protected def updateQbeastRevision(
       baseConfiguration: Configuration,
       newRevision: Revision): Configuration = {
     val newRevisionID = newRevision.revisionID
@@ -92,7 +92,6 @@ private[hudi] trait QbeastMetadataOperation extends StagingUtils {
 
     // Update latest revision id and add new revision to metadata
     configuration
-      .updated(lastRevisionID, newRevisionID.toString)
       .updated(s"$revision.$newRevisionID", mapper.writeValueAsString(newRevision))
   }
 

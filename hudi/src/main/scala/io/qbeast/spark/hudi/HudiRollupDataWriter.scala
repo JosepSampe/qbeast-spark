@@ -52,6 +52,7 @@ object HudiRollupDataWriter extends RollupDataWriter {
     val filesAndStats =
       internalWrite(tableId, schema, data, tableChanges, statsTrackers)
     val stats = filesAndStats.map(_._2)
+
     processStats(stats, statsTrackers)
 
     filesAndStats
