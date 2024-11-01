@@ -254,7 +254,6 @@ private[table] class IndexedTableImpl(
   }
 
   override def verifyAndMergeProperties(properties: Map[String, String]): Map[String, String] = {
-    println(properties)
     if (!exists) {
       // IF not exists, we should only check new properties
       checkQbeastProperties(properties)
@@ -350,8 +349,6 @@ private[table] class IndexedTableImpl(
       if (exists && append) {
         // If the table exists and we are appending new data
         // 1. Load existing IndexStatus
-        println(parameters)
-        println("--------")
         val options = QbeastOptions(verifyAndMergeProperties(parameters))
         logDebug(s"Appending data to table $tableID with revision=${latestRevision.revisionID}")
         if (isStaging(latestRevision)) { // If the existing Revision is Staging

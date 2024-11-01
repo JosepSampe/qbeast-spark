@@ -62,6 +62,7 @@ object HudiMetadataManager extends MetadataManager {
   }
 
   override def loadSnapshot(tableID: QTableID): HudiQbeastSnapshot = {
+    // Check a better way to create the table if it does not exist
     createLog(tableID)
     HudiQbeastSnapshot(tableID)
   }

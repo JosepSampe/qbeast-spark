@@ -172,7 +172,6 @@ private[hudi] case class HudiMetadataWriter(
     activeTimeline.createNewInstant(hoodieInstant)
 
     val statsTrackers = createStatsTrackers()
-    println(statsTrackers)
     registerStatsTrackers(statsTrackers)
 
     val (tableChanges, indexFiles, deleteFiles) = writer
@@ -201,9 +200,7 @@ private[hudi] case class HudiMetadataWriter(
 //    val revision = tableChanges.updatedRevision
 //    val dimensionCount = revision.transformations.length
 //    val qbeastActions = actions.map(DeltaQbeastFileUtils.fromAction(dimensionCount))
-    val qbeastActions = Seq.empty[QbeastFile]
-    val tags = runPreCommitHooks(qbeastActions)
-    println(tags)
+    // val tags = runPreCommitHooks(qbeastActions)
 
     val extraMetadata = Map(
       "schema" -> schema.json,
@@ -291,16 +288,19 @@ private[hudi] case class HudiMetadataWriter(
       writeStatusList += writeStatus
 
       val metadata = Map(
-        TagUtils.revision -> indexFile.revisionId.toString,
+        // TagUtils.revision -> indexFile.revisionId.toString,
         TagUtils.blocks -> mapper.readTree(encodeBlocks(indexFile.blocks)))
       qbeastMetadata += (indexFile.path -> metadata)
     })
-    extraMeta.put(MetadataConfig.cubes, mapper.writeValueAsString(qbeastMetadata))
+    extraMeta.put(MetadataConfig.revision, tableChanges.updatedRevision.revisionID.toString)
+    extraMeta.put(MetadataConfig.blocks, mapper.writeValueAsString(qbeastMetadata))
 
     val baseConfiguration: Configuration = Map.empty
     val qbeastRevisions = updateQbeastRevision(baseConfiguration, tableChanges.updatedRevision)
 
+    // Store lastRevisionID in table properties
     extraMeta.put(MetadataConfig.lastRevisionID, tableChanges.updatedRevision.revisionID.toString)
+
     extraMeta.put(MetadataConfig.revisions, mapper.writeValueAsString(qbeastRevisions))
 
     val writeStatusRdd = jsc.parallelize(writeStatusList)
@@ -310,8 +310,6 @@ private[hudi] case class HudiMetadataWriter(
   }
 
   def updateMetadataWithTransaction(update: => Configuration): Unit = {
-
-    println(update)
 
     val commitTime = HoodieActiveTimeline.createNewInstantTime
     val hoodieInstant =
@@ -339,7 +337,7 @@ private[hudi] case class HudiMetadataWriter(
 
     activeTimeline.saveAsComplete(hoodieInstant, Option.of(commitMetadata.toJsonString.getBytes))
 
-    println(s"Commit $commitTime completed with file")
+    println(s"Commit $commitTime completed")
 
   }
 

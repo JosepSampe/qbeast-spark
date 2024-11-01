@@ -439,6 +439,11 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
         .option("hoodie.metadata.record.index.enable", "true")
         .save(basePath)
 
+//      val data2 = createTestData(spark)
+//      data2.write
+//        .format("qbeast")
+//        .mode("append")
+//        .save(basePath)
     }
 
   it should
@@ -448,8 +453,9 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
       val basePath = s"$currentPath/spark-warehouse/$tableName"
 
       spark.read
-        .format("hudi")
+        .format("qbeast")
         .load(basePath)
+        .sample(0.5)
         .show(truncate = false)
 
     }

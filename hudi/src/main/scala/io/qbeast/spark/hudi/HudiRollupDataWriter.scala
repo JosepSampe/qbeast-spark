@@ -41,11 +41,8 @@ object HudiRollupDataWriter extends RollupDataWriter {
       schema: StructType,
       data: DataFrame,
       tableChanges: TableChanges): IISeq[IndexFile] = {
-    val revision = tableChanges.updatedRevision
-    val dimensionCount = revision.transformations.length
-
-    println(dimensionCount)
-    println(tableChanges)
+    // val revision = tableChanges.updatedRevision
+    // val dimensionCount = revision.transformations.length
 
     val statsTrackers = StatsTracker.getStatsTrackers
 

@@ -19,6 +19,7 @@ import org.apache.spark.sql.DataFrame
 import org.apache.spark.sql.Dataset
 import org.apache.spark.sql.SparkSession
 
+import scala.collection.mutable.ListBuffer
 import scala.jdk.CollectionConverters._
 
 case class HudiQbeastSnapshot(tableID: QTableID) extends QbeastSnapshot {
@@ -131,29 +132,26 @@ case class HudiQbeastSnapshot(tableID: QTableID) extends QbeastSnapshot {
   override def loadLatestIndexFiles: Dataset[IndexFile] = loadIndexFiles(lastRevisionID)
 
   override def loadIndexFiles(revisionID: RevisionID): Dataset[IndexFile] = {
-    // val dimensionCount = loadRevision(revisionID).transformations.size
-    val addFiles = loadFilesForRevision(revisionID)
-    println(addFiles)
-    // addFiles.map(HudiQbeastFileUtils.fromHudiFile(dimensionCount))
-    import spark.implicits._
-    spark.emptyDataset[IndexFile]
-  }
+    val dimensionCount = loadRevision(revisionID).transformations.size
+    val indexFilesBuffer = ListBuffer[IndexFile]()
 
-  private def loadFilesForRevision(revisionID: RevisionID): Dataset[String] = {
     val metaClient = loadMetaClient()
-    val timeline = metaClient.getActiveTimeline.getCommitTimeline.filterCompletedInstants
-    val lastCommitInstant = timeline.lastInstant().get()
+    val timeline: HoodieTimeline =
+      metaClient.getActiveTimeline.getCommitTimeline.filterCompletedInstants
 
-    val commitMetadataBytes = metaClient.getActiveTimeline
-      .getInstantDetails(lastCommitInstant)
-      .get()
-    val commitMetadata =
-      HoodieCommitMetadata.fromBytes(commitMetadataBytes, classOf[HoodieCommitMetadata])
-
-    println(commitMetadata)
+    timeline.getInstants.iterator().asScala.foreach { instant =>
+      val commitMetadataBytes = metaClient.getActiveTimeline
+        .getInstantDetails(instant)
+        .get()
+      val commitMetadata =
+        HoodieCommitMetadata.fromBytes(commitMetadataBytes, classOf[HoodieCommitMetadata])
+      val indexFiles = HudiQbeastFileUtils.fromCommitFile(dimensionCount)(commitMetadata)
+      indexFilesBuffer ++= indexFiles
+    }
 
     import spark.implicits._
-    spark.emptyDataset[String]
+    val indexFilesDataset: Dataset[IndexFile] = spark.createDataset(indexFilesBuffer.toList)
+    indexFilesDataset
   }
 
   override def loadAllRevisions: IISeq[Revision] = revisionsMap.values.toVector
