@@ -100,11 +100,10 @@ private[hudi] case class HudiMetadataWriter(
   private def createStatsTrackers(): Seq[WriteJobStatsTracker] = {
     val statsTrackers: ListBuffer[WriteJobStatsTracker] = ListBuffer()
     // Create basic stats trackers to add metrics on the Write Operation
-    val hadoopConf = sparkSession.sessionState.newHadoopConf() // TODO check conf
+    val hadoopConf = sparkSession.sessionState.newHadoopConf()
     val basicWriteJobStatsTracker = new BasicWriteJobStatsTracker(
       new SerializableConfiguration(hadoopConf),
       BasicWriteJobStatsTracker.metrics)
-    // txn.registerSQLMetrics(sparkSession, basicWriteJobStatsTracker.driverSideMetrics)
     statsTrackers.append(basicWriteJobStatsTracker)
     statsTrackers
   }
@@ -164,65 +163,14 @@ private[hudi] case class HudiMetadataWriter(
     }
   }
 
-  def writeWithTransactionA(writer: => (TableChanges, Seq[IndexFile], Seq[DeleteFile])): Unit = {
-
-    val commitTime = HoodieActiveTimeline.createNewInstantTime
-    val hoodieInstant =
-      new HoodieInstant(State.INFLIGHT, HoodieTimeline.COMMIT_ACTION, commitTime)
-
-    val activeTimeline = metaClient.getActiveTimeline
-    activeTimeline.createNewInstant(hoodieInstant)
-
-    val statsTrackers = createStatsTrackers()
-    registerStatsTrackers(statsTrackers)
-
-    val (tableChanges, indexFiles, deleteFiles) = writer
-
-    val commitMetadata = new HoodieCommitMetadata()
-    commitMetadata.setOperationType(WriteOperationType.BULK_INSERT)
-
-    val qbeastMetadata: mutable.Map[String, Map[String, Object]] = mutable.Map()
-    indexFiles.foreach(indexFile => {
-      val writeStat = new HoodieWriteStat()
-      writeStat.setPath(indexFile.path)
-      writeStat.setNumWrites(1)
-      writeStat.setNumDeletes(0)
-      writeStat.setNumUpdateWrites(0)
-      writeStat.setFileSizeInBytes(indexFile.size)
-      writeStat.setTotalWriteBytes(indexFile.size)
-      writeStat.setNumInserts(indexFile.elementCount)
-      commitMetadata.addWriteStat("", writeStat)
-      val metadata = Map(
-        TagUtils.revision -> indexFile.revisionId.toString,
-        TagUtils.blocks -> mapper.readTree(encodeBlocks(indexFile.blocks)))
-      qbeastMetadata += (indexFile.path -> metadata)
-    })
-
-    // Run pre-commit hooks
-//    val revision = tableChanges.updatedRevision
-//    val dimensionCount = revision.transformations.length
-//    val qbeastActions = actions.map(DeltaQbeastFileUtils.fromAction(dimensionCount))
-    // val tags = runPreCommitHooks(qbeastActions)
-
-    val extraMetadata = Map(
-      "schema" -> schema.json,
-      "_hoodie.metadata.ignore.spurious.deletes" -> "true",
-      "_hoodie.allow.multi.write.on.same.instant" -> "false",
-      "_hoodie.optimistic.consistency.guard.enable" -> "false",
-      "qbeastMetadata" -> mapper.writeValueAsString(qbeastMetadata))
-
-    extraMetadata.foreach { case (k, v) => commitMetadata.addMetadata(k, v) }
-
-    activeTimeline.saveAsComplete(hoodieInstant, Option.of(commitMetadata.toJsonString.getBytes))
-
-    println(s"Commit $commitTime completed")
-  }
-
   def writeWithTransaction(writer: => (TableChanges, Seq[IndexFile], Seq[DeleteFile])): Unit = {
 
     val basePath = tableID.id
     val jsc = new JavaSparkContext(sparkSession.sparkContext)
     val avroSchema = SchemaConverters.toAvroType(schema)
+
+    val statsTrackers = createStatsTrackers()
+    registerStatsTrackers(statsTrackers)
 
     val conf = Map(
       "hoodie.metadata.enable" -> "true",
@@ -237,15 +185,11 @@ private[hudi] case class HudiMetadataWriter(
 //      case None => Map.empty
 //    }
 
-    println(metaClient.getTableConfig.getProps)
-
     // Priority: defaults < catalog props < table config < sparkSession conf < specified conf
     val finalParameters = HoodieWriterUtils.parametersWithWriteDefaults(
       metaClient.getTableConfig.getProps.asScala.toMap ++
         sparkSession.sqlContext.getAllConfs.filterKeys(isHoodieConfigKey) ++
         conf)
-
-    println(finalParameters)
 
     val client = DataSourceUtils.createHoodieClient(
       jsc,
@@ -331,7 +275,7 @@ private[hudi] case class HudiMetadataWriter(
     val baseConfiguration: Configuration = Map.empty
     val qbeastRevisions = updateQbeastRevision(baseConfiguration, tableChanges.updatedRevision)
 
-    // Store lastRevisionID in table properties (Not possible by default)
+    // Try to store lastRevisionID in table properties (Not possible by default)
     extraMeta.put(MetadataConfig.lastRevisionID, tableChanges.updatedRevision.revisionID.toString)
 
     extraMeta.put(MetadataConfig.revisions, mapper.writeValueAsString(qbeastRevisions))
@@ -352,8 +296,8 @@ private[hudi] case class HudiMetadataWriter(
     activeTimeline.createNewInstant(hoodieInstant)
 
     val commitMetadata = new HoodieCommitMetadata()
-    commitMetadata.addWriteStat("/location.parquet", new HoodieWriteStat())
-    commitMetadata.setOperationType(WriteOperationType.BULK_INSERT)
+
+    commitMetadata.setOperationType(WriteOperationType.ALTER_SCHEMA)
 
     val tagsJson = """{
       "revision": "1",
@@ -369,8 +313,6 @@ private[hudi] case class HudiMetadataWriter(
     extraMetadata.foreach { case (k, v) => commitMetadata.addMetadata(k, v) }
 
     activeTimeline.saveAsComplete(hoodieInstant, Option.of(commitMetadata.toJsonString.getBytes))
-
-    println(s"Commit $commitTime completed")
 
   }
 

@@ -11,7 +11,6 @@ import org.apache.hudi.common.table.timeline.HoodieTimeline
 import org.apache.hudi.common.table.HoodieTableMetaClient
 import org.apache.hudi.hadoop.fs.HadoopFSUtils
 import org.apache.hudi.storage.StoragePath
-import org.apache.hudi.DataSourceReadOptions
 import org.apache.hudi.HoodieFileIndex
 import org.apache.spark.api.java.JavaSparkContext
 import org.apache.spark.sql.avro.SchemaConverters
@@ -211,12 +210,11 @@ case class HudiQbeastSnapshot(tableID: QTableID) extends QbeastSnapshot {
    */
   override def loadFileIndex(): FileIndex = {
     val sparkSession = SparkSession.active
-    val optParams = Map("path" -> tableID.id)
     HoodieFileIndex(
       sparkSession,
       loadMetaClient(),
       Some(schema),
-      optParams,
+      Map("path" -> tableID.id),
       FileStatusCache.getOrCreate(sparkSession))
   }
 
