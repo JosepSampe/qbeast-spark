@@ -31,6 +31,8 @@ object TagUtils {
 }
 
 object MetadataConfig {
+  final val revisions = "qbeast.revisions"
+  final val blocks = "qbeast.blocks"
   final val revision = "qbeast.revision"
   final val lastRevisionID = "qbeast.lastRevisionID"
 }
