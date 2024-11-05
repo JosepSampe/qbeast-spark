@@ -435,8 +435,8 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
         .option("columnsToIndex", "id")
         .option("hoodie.metadata.enable", "true")
         .option("hoodie.metadata.index.column.stats.enable", "true")
-        .option("hoodie.metadata.index.bloom.filter.enable", "true")
-        .option("hoodie.metadata.record.index.enable", "true")
+        // .option("hoodie.metadata.index.bloom.filter.enable", "true")
+        // .option("hoodie.metadata.record.index.enable", "true")
         .save(basePath)
 
 //      val data2 = createTestData(spark)
@@ -452,11 +452,15 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
       val currentPath = Paths.get("").toAbsolutePath.toString
       val basePath = s"$currentPath/spark-warehouse/$tableName"
 
-      spark.read
-        .format("qbeast")
-        .load(basePath)
-        .sample(0.5)
-        .show(truncate = false)
+      val metadataDF = spark.read.format("hudi").load(s"$basePath/.hoodie/metadata")
+      metadataDF.printSchema()
+      metadataDF.show(numRows = 100, truncate = false)
+
+//      spark.read
+//        .format("qbeast")
+//        .load(basePath)
+//        .sample(0.5)
+//        .show(truncate = false)
 
     }
 

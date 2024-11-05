@@ -45,6 +45,7 @@ import org.apache.spark.internal.Logging
 import org.apache.spark.sql.avro.SchemaConverters
 import org.apache.spark.sql.execution.datasources.BasicWriteJobStatsTracker
 import org.apache.spark.sql.execution.datasources.WriteJobStatsTracker
+import org.apache.spark.sql.hudi.HoodieSqlCommonUtils.isHoodieConfigKey
 import org.apache.spark.sql.types.StructType
 import org.apache.spark.sql.SaveMode
 import org.apache.spark.sql.SparkSession
@@ -218,18 +219,42 @@ private[hudi] case class HudiMetadataWriter(
 
   def writeWithTransaction(writer: => (TableChanges, Seq[IndexFile], Seq[DeleteFile])): Unit = {
 
-    val path = tableID.id
+    val basePath = tableID.id
     val jsc = new JavaSparkContext(sparkSession.sparkContext)
     val avroSchema = SchemaConverters.toAvroType(schema)
+
+    val conf = Map(
+      "hoodie.metadata.enable" -> "true",
+      "hoodie.metadata.index.column.stats.enable" -> "true")
+
+    // If tableName is provided, we need to add catalog props
+//    val tableName = scala.Option("hudi_table")
+//    val catalogProps = tableName match {
+//      case Some(value) =>
+//        HoodieOptionConfig.mapSqlOptionsToDataSourceWriteConfigs(
+//          getHoodieCatalogTable(sparkSession, value).catalogProperties)
+//      case None => Map.empty
+//    }
+
+    println(metaClient.getTableConfig.getProps)
+
+    // Priority: defaults < catalog props < table config < sparkSession conf < specified conf
+    val finalParameters = HoodieWriterUtils.parametersWithWriteDefaults(
+      metaClient.getTableConfig.getProps.asScala.toMap ++
+        sparkSession.sqlContext.getAllConfs.filterKeys(isHoodieConfigKey) ++
+        conf)
+
+    println(finalParameters)
 
     val client = DataSourceUtils.createHoodieClient(
       jsc,
       avroSchema.toString,
-      path,
-      "hudi_table",
-      HoodieWriterUtils
-        .parametersWithWriteDefaults(sparkSession.sqlContext.getAllConfs)
-        .asJava)
+      basePath,
+      metaClient.getTableConfig.getTableName,
+      finalParameters.asJava)
+
+//    // When the table already exists
+//    val client = HoodieCLIUtils.createHoodieWriteClient(sparkSession, basePath, Map.empty, None)
 
     val commitActionType =
       CommitUtils.getCommitActionType(WriteOperationType.BULK_INSERT, metaClient.getTableType)
@@ -251,9 +276,7 @@ private[hudi] case class HudiMetadataWriter(
     val extraMeta = new util.HashMap[String, String]()
 
     val currTimer = HoodieTimer.start()
-
     val (tableChanges, indexFiles, deleteFiles) = writer
-
     val totalWriteTime = currTimer.endTimer()
 
     val commitMetadata = new HoodieCommitMetadata()

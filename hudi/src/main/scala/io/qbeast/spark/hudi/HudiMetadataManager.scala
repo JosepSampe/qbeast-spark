@@ -20,8 +20,9 @@ import io.qbeast.spark.internal.QbeastOptions
 import io.qbeast.IISeq
 import org.apache.hadoop.fs.FileSystem
 import org.apache.hadoop.fs.Path
-import org.apache.hudi.common.model.HoodieCommitMetadata
+import org.apache.hudi.common.model.HoodieFileFormat
 import org.apache.hudi.common.model.HoodieTableType
+import org.apache.hudi.common.model.HoodieTimelineTimeZone
 import org.apache.hudi.common.table.HoodieTableMetaClient
 import org.apache.hudi.hadoop.fs.HadoopFSUtils
 import org.apache.spark.api.java.JavaSparkContext
@@ -68,17 +69,7 @@ object HudiMetadataManager extends MetadataManager {
   }
 
   override def loadCurrentSchema(tableID: QTableID): StructType = {
-    val metaClient = loadMetaClient(tableID)
-    val timeline = metaClient.getActiveTimeline.getCommitTimeline.filterCompletedInstants
-    val lastCommitInstant = timeline.lastInstant().get()
-    val commitMetadataBytes = metaClient.getActiveTimeline
-      .getInstantDetails(lastCommitInstant)
-      .get()
-    val commitMetadata =
-      HoodieCommitMetadata.fromBytes(commitMetadataBytes, classOf[HoodieCommitMetadata])
-    val extraMetadata = commitMetadata.getExtraMetadata.get("schema")
-
-    StructType.fromDDL(extraMetadata)
+    loadSnapshot(tableID).schema
   }
 
   override def updateRevision(tableID: QTableID, revisionChange: RevisionChange): Unit = {}
@@ -138,12 +129,25 @@ object HudiMetadataManager extends MetadataManager {
    *   Table ID
    */
   override def createLog(tableID: QTableID): Unit = {
-    val jsc = new JavaSparkContext(SparkSession.active.sparkContext)
-    HoodieTableMetaClient
-      .withPropertyBuilder()
-      .setTableType(HoodieTableType.COPY_ON_WRITE)
-      .setTableName("hudi_table")
-      .initTable(HadoopFSUtils.getStorageConfWithCopy(jsc.hadoopConfiguration()), tableID.id)
+    if (!existsLog(tableID)) {
+      val jsc = new JavaSparkContext(SparkSession.active.sparkContext)
+      val sc = HadoopFSUtils.getStorageConfWithCopy(jsc.hadoopConfiguration())
+      HoodieTableMetaClient
+        .withPropertyBuilder()
+        .setTableType(HoodieTableType.COPY_ON_WRITE)
+        .setBaseFileFormat(HoodieFileFormat.PARQUET.name())
+        .setCommitTimezone(HoodieTimelineTimeZone.LOCAL)
+        .setHiveStylePartitioningEnable(false)
+        .setPartitionMetafileUseBaseFormat(false)
+        .setCDCEnabled(false)
+        .setPopulateMetaFields(true)
+        .setUrlEncodePartitioning(false)
+        .setKeyGeneratorClassProp("org.apache.hudi.keygen.NonpartitionedKeyGenerator")
+        .setTableName("hudi_table")
+        .setDatabaseName("")
+        .setPartitionFields("")
+        .initTable(sc, tableID.id)
+    }
   }
 
 }
