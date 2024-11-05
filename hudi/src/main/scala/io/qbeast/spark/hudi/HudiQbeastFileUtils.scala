@@ -15,7 +15,6 @@
  */
 package io.qbeast.spark.hudi
 
-import com.fasterxml.jackson.core.JsonFactory
 import com.fasterxml.jackson.core.JsonParseException
 import com.fasterxml.jackson.databind.JsonNode
 import io.qbeast.core.model._
@@ -31,8 +30,6 @@ import scala.collection.JavaConverters._
  * Utility object for working with Hudi commit metadata to create IndexFile instances.
  */
 object HudiQbeastFileUtils {
-
-  private val jsonFactory = new JsonFactory()
 
   /**
    * Creates a list of IndexFile instances from HoodieCommitMetadata.

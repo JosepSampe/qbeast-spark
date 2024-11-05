@@ -321,7 +321,7 @@ private[hudi] case class HudiMetadataWriter(
     val baseConfiguration: Configuration = Map.empty
     val qbeastRevisions = updateQbeastRevision(baseConfiguration, tableChanges.updatedRevision)
 
-    // Store lastRevisionID in table properties
+    // Store lastRevisionID in table properties (Not possible by default)
     extraMeta.put(MetadataConfig.lastRevisionID, tableChanges.updatedRevision.revisionID.toString)
 
     extraMeta.put(MetadataConfig.revisions, mapper.writeValueAsString(qbeastRevisions))

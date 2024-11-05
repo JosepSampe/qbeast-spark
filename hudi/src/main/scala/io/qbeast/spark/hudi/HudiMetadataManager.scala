@@ -30,6 +30,8 @@ import org.apache.spark.sql.types.StructType
 import org.apache.spark.sql.SaveMode
 import org.apache.spark.sql.SparkSession
 
+import java.nio.file.Paths
+
 /**
  * Spark+Delta implementation of the MetadataManager interface
  */
@@ -132,6 +134,8 @@ object HudiMetadataManager extends MetadataManager {
     if (!existsLog(tableID)) {
       val jsc = new JavaSparkContext(SparkSession.active.sparkContext)
       val sc = HadoopFSUtils.getStorageConfWithCopy(jsc.hadoopConfiguration())
+      val tableName = Paths.get(tableID.id).getFileName.toString
+
       HoodieTableMetaClient
         .withPropertyBuilder()
         .setTableType(HoodieTableType.COPY_ON_WRITE)
@@ -143,7 +147,7 @@ object HudiMetadataManager extends MetadataManager {
         .setPopulateMetaFields(true)
         .setUrlEncodePartitioning(false)
         .setKeyGeneratorClassProp("org.apache.hudi.keygen.NonpartitionedKeyGenerator")
-        .setTableName("hudi_table")
+        .setTableName(tableName)
         .setDatabaseName("")
         .setPartitionFields("")
         .initTable(sc, tableID.id)
