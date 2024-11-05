@@ -387,8 +387,6 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
         println(metaClient.getTableConfig.getMetadataPartitions)
         println(metaClient.getTableConfig.isMetadataTableAvailable)
 
-        println("-------++++++")
-
         val partitionPath = new StoragePath(basePath)
         println(partitionPath.toString)
 
@@ -439,9 +437,10 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
         // .option("hoodie.metadata.record.index.enable", "true")
         .save(basePath)
 
+//      Thread.sleep(2000)
 //      val data2 = createTestData(spark)
 //      data2.write
-//        .format("qbeast")
+//        .format("hudi")
 //        .mode("append")
 //        .save(basePath)
     }
@@ -456,11 +455,11 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
       metadataDF.printSchema()
       metadataDF.show(numRows = 100, truncate = false)
 
-//      spark.read
-//        .format("qbeast")
-//        .load(basePath)
-//        .sample(0.5)
-//        .show(truncate = false)
+      spark.read
+        .format("qbeast")
+        .load(basePath)
+        .sample(0.5)
+        .show(truncate = false)
 
     }
 

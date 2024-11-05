@@ -26,6 +26,7 @@ import io.qbeast.IISeq
 import org.apache.hudi.client.WriteStatus
 import org.apache.hudi.common.fs.FSUtils
 import org.apache.hudi.common.model.HoodieCommitMetadata
+import org.apache.hudi.common.model.HoodiePartitionMetadata
 import org.apache.hudi.common.model.HoodieWriteStat
 import org.apache.hudi.common.model.WriteOperationType
 import org.apache.hudi.common.table.timeline.HoodieActiveTimeline
@@ -278,6 +279,15 @@ private[hudi] case class HudiMetadataWriter(
     val currTimer = HoodieTimer.start()
     val (tableChanges, indexFiles, deleteFiles) = writer
     val totalWriteTime = currTimer.endTimer()
+
+    val partitionMetadata =
+      new HoodiePartitionMetadata(
+        metaClient.getStorage,
+        instantTime,
+        metaClient.getBasePathV2,
+        metaClient.getBasePathV2,
+        Option.empty())
+    partitionMetadata.trySave()
 
     val commitMetadata = new HoodieCommitMetadata()
     commitMetadata.setOperationType(WriteOperationType.BULK_INSERT)
