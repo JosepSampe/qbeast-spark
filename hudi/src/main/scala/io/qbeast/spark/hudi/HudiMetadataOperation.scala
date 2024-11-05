@@ -28,7 +28,7 @@ import org.apache.spark.sql.types.MapType
 /**
  * Qbeast metadata changes on a Delta Table.
  */
-private[hudi] trait QbeastMetadataOperation extends StagingUtils {
+private[hudi] trait HudiMetadataOperation extends StagingUtils {
 
   type Configuration = Map[String, String]
 

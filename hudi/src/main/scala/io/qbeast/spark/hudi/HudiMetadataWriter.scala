@@ -79,7 +79,7 @@ private[hudi] case class HudiMetadataWriter(
     metaClient: HoodieTableMetaClient,
     qbeastOptions: QbeastOptions,
     schema: StructType)
-    extends QbeastMetadataOperation
+    extends HudiMetadataOperation
     with Logging {
 
   // private def isOverwriteMode: Boolean = mode == SaveMode.Overwrite

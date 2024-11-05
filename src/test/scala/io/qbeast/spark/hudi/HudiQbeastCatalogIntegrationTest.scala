@@ -458,7 +458,7 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
       spark.read
         .format("qbeast")
         .load(basePath)
-        .sample(0.5)
+        .sample(0.1)
         .show(truncate = false)
 
     }
