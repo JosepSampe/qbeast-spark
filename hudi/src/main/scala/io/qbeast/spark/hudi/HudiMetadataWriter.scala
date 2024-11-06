@@ -23,6 +23,7 @@ import io.qbeast.spark.utils.MetadataConfig
 import io.qbeast.spark.utils.TagUtils
 import io.qbeast.spark.writer.StatsTracker.registerStatsTrackers
 import io.qbeast.IISeq
+import org.apache.hudi.client.SparkRDDWriteClient
 import org.apache.hudi.client.WriteStatus
 import org.apache.hudi.common.fs.FSUtils
 import org.apache.hudi.common.model.HoodieCommitMetadata
@@ -32,7 +33,6 @@ import org.apache.hudi.common.model.WriteOperationType
 import org.apache.hudi.common.table.timeline.HoodieActiveTimeline
 import org.apache.hudi.common.table.timeline.HoodieInstant
 import org.apache.hudi.common.table.timeline.HoodieInstant.State
-import org.apache.hudi.common.table.timeline.HoodieTimeline
 import org.apache.hudi.common.table.HoodieTableMetaClient
 import org.apache.hudi.common.util.CommitUtils
 import org.apache.hudi.common.util.HoodieTimer
@@ -87,6 +87,9 @@ private[hudi] case class HudiMetadataWriter(
   private val sparkSession = SparkSession.active
   private val jsonFactory = new JsonFactory()
 
+  private val basePath = tableID.id
+  private val jsc = new JavaSparkContext(sparkSession.sparkContext)
+
 //  private val writeConfig = HoodieWriteConfig
 //    .newBuilder()
 //    .withPath(metaClient.getBasePathV2.toString)
@@ -106,6 +109,39 @@ private[hudi] case class HudiMetadataWriter(
       BasicWriteJobStatsTracker.metrics)
     statsTrackers.append(basicWriteJobStatsTracker)
     statsTrackers
+  }
+
+  private def createHoodieClient(): SparkRDDWriteClient[_] = {
+    val avroSchema = SchemaConverters.toAvroType(schema)
+
+    val statsTrackers = createStatsTrackers()
+    registerStatsTrackers(statsTrackers)
+
+    val conf = Map(
+      "hoodie.metadata.enable" -> "true",
+      "hoodie.metadata.index.column.stats.enable" -> "true")
+
+    // If tableName is provided, we need to add catalog props
+    //    val tableName = scala.Option("hudi_table")
+    //    val catalogProps = tableName match {
+    //      case Some(value) =>
+    //        HoodieOptionConfig.mapSqlOptionsToDataSourceWriteConfigs(
+    //          getHoodieCatalogTable(sparkSession, value).catalogProperties)
+    //      case None => Map.empty
+    //    }
+
+    // Priority: defaults < catalog props < table config < sparkSession conf < specified conf
+    val finalParameters = HoodieWriterUtils.parametersWithWriteDefaults(
+      metaClient.getTableConfig.getProps.asScala.toMap ++
+        sparkSession.sqlContext.getAllConfs.filterKeys(isHoodieConfigKey) ++
+        conf)
+
+    DataSourceUtils.createHoodieClient(
+      jsc,
+      avroSchema.toString,
+      basePath,
+      metaClient.getTableConfig.getTableName,
+      finalParameters.asJava)
   }
 
   private val preCommitHooks = new ListBuffer[PreCommitHook]()
@@ -165,51 +201,17 @@ private[hudi] case class HudiMetadataWriter(
 
   def writeWithTransaction(writer: => (TableChanges, Seq[IndexFile], Seq[DeleteFile])): Unit = {
 
-    val basePath = tableID.id
-    val jsc = new JavaSparkContext(sparkSession.sparkContext)
-    val avroSchema = SchemaConverters.toAvroType(schema)
-
-    val statsTrackers = createStatsTrackers()
-    registerStatsTrackers(statsTrackers)
-
-    val conf = Map(
-      "hoodie.metadata.enable" -> "true",
-      "hoodie.metadata.index.column.stats.enable" -> "true")
-
-    // If tableName is provided, we need to add catalog props
-//    val tableName = scala.Option("hudi_table")
-//    val catalogProps = tableName match {
-//      case Some(value) =>
-//        HoodieOptionConfig.mapSqlOptionsToDataSourceWriteConfigs(
-//          getHoodieCatalogTable(sparkSession, value).catalogProperties)
-//      case None => Map.empty
-//    }
-
-    // Priority: defaults < catalog props < table config < sparkSession conf < specified conf
-    val finalParameters = HoodieWriterUtils.parametersWithWriteDefaults(
-      metaClient.getTableConfig.getProps.asScala.toMap ++
-        sparkSession.sqlContext.getAllConfs.filterKeys(isHoodieConfigKey) ++
-        conf)
-
-    val client = DataSourceUtils.createHoodieClient(
-      jsc,
-      avroSchema.toString,
-      basePath,
-      metaClient.getTableConfig.getTableName,
-      finalParameters.asJava)
-
-//    // When the table already exists
-//    val client = HoodieCLIUtils.createHoodieWriteClient(sparkSession, basePath, Map.empty, None)
+    val hudiClient = createHoodieClient()
 
     val commitActionType =
       CommitUtils.getCommitActionType(WriteOperationType.BULK_INSERT, metaClient.getTableType)
     // val instantTime = HoodieActiveTimeline.createNewInstantTime
     val instantTime = "20241030163011087"
 
-    client.startCommitWithTime(instantTime, commitActionType)
-    client.setOperationType(WriteOperationType.BULK_INSERT)
+    hudiClient.startCommitWithTime(instantTime, commitActionType)
+    hudiClient.setOperationType(WriteOperationType.BULK_INSERT)
 
-    val hoodieTable = HoodieSparkTable.create(client.getConfig, client.getEngineContext)
+    val hoodieTable = HoodieSparkTable.create(hudiClient.getConfig, hudiClient.getEngineContext)
     val timeLine = hoodieTable.getActiveTimeline
     val requested = new HoodieInstant(State.REQUESTED, commitActionType, instantTime)
     val metadata = new HoodieCommitMetadata
@@ -282,38 +284,30 @@ private[hudi] case class HudiMetadataWriter(
 
     val writeStatusRdd = jsc.parallelize(writeStatusList)
 
-    client.commit(instantTime, writeStatusRdd, Option.of(extraMeta))
+    hudiClient.commit(instantTime, writeStatusRdd, Option.of(extraMeta))
 
   }
 
   def updateMetadataWithTransaction(update: => Configuration): Unit = {
 
-    val commitTime = HoodieActiveTimeline.createNewInstantTime
-    val hoodieInstant =
-      new HoodieInstant(State.INFLIGHT, HoodieTimeline.COMMIT_ACTION, commitTime)
+    val hudiClient = createHoodieClient()
+    val commitActionType =
+      CommitUtils.getCommitActionType(WriteOperationType.ALTER_SCHEMA, metaClient.getTableType)
+    val instantTime = HoodieActiveTimeline.createNewInstantTime
 
-    val activeTimeline = metaClient.getActiveTimeline
-    activeTimeline.createNewInstant(hoodieInstant)
+    hudiClient.startCommitWithTime(instantTime, commitActionType)
+    hudiClient.preWrite(instantTime, WriteOperationType.ALTER_SCHEMA, metaClient)
 
-    val commitMetadata = new HoodieCommitMetadata()
+    val hoodieTable = HoodieSparkTable.create(hudiClient.getConfig, hudiClient.getEngineContext)
+    val timeLine = hoodieTable.getActiveTimeline
+    val requested = new HoodieInstant(State.REQUESTED, commitActionType, instantTime)
+    val metadata = new HoodieCommitMetadata
+    metadata.setOperationType(WriteOperationType.ALTER_SCHEMA)
+    timeLine.transitionRequestedToInflight(
+      requested,
+      Option.of(getUTF8Bytes(metadata.toJsonString)))
 
-    commitMetadata.setOperationType(WriteOperationType.ALTER_SCHEMA)
-
-    val tagsJson = """{
-      "revision": "1",
-      "blocks": "[{\"cubeId\":\"\",\"minWeight\":-1823081949,\"maxWeight\":2147483647,\"elementCount\":10,\"replicated\":false}]"
-    }"""
-
-    val extraMetadata = Map(
-      "schema" -> schema.json,
-      "_hoodie.metadata.ignore.spurious.deletes" -> "true",
-      "_hoodie.allow.multi.write.on.same.instant" -> "false",
-      "_hoodie.optimistic.consistency.guard.enable" -> "false",
-      "tags" -> tagsJson)
-    extraMetadata.foreach { case (k, v) => commitMetadata.addMetadata(k, v) }
-
-    activeTimeline.saveAsComplete(hoodieInstant, Option.of(commitMetadata.toJsonString.getBytes))
-
+    hudiClient.commit(instantTime, jsc.emptyRDD)
   }
 
   private def encodeBlocks(blocks: IISeq[Block]): String = {

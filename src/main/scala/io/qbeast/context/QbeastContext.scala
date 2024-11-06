@@ -21,12 +21,14 @@ import io.qbeast.core.model._
 import io.qbeast.spark.delta.DeltaMetadataManager
 import io.qbeast.spark.delta.DeltaRollupDataWriter
 import io.qbeast.spark.delta.DeltaStagingDataManagerFactory
-import io.qbeast.spark.hudi.{HudiMetadataManager, HudiRollupDataWriter}
+import io.qbeast.spark.hudi.HudiMetadataManager
+import io.qbeast.spark.hudi.HudiRollupDataWriter
 import io.qbeast.spark.index.SparkColumnsToIndexSelector
 import io.qbeast.spark.index.SparkOTreeManager
 import io.qbeast.spark.index.SparkRevisionFactory
 import io.qbeast.table.IndexedTableFactory
 import io.qbeast.table.IndexedTableFactoryImpl
+import org.apache.spark.qbeast.config.DEFAULT_TABLE_FORMAT
 import org.apache.spark.scheduler.SparkListener
 import org.apache.spark.scheduler.SparkListenerApplicationEnd
 import org.apache.spark.sql.SparkSession
@@ -87,9 +89,29 @@ object QbeastContext extends QbeastContext with QbeastCoreContext {
 
   override def indexManager: IndexManager = SparkOTreeManager
 
-  override def metadataManager: MetadataManager = HudiMetadataManager
+  override def metadataManager: MetadataManager = {
+    DEFAULT_TABLE_FORMAT match {
+      case "delta" =>
+        DeltaMetadataManager
+      case "hudi" =>
+        HudiMetadataManager
+      case _ =>
+        throw new IllegalArgumentException(
+          s"MetadataManager for table format $DEFAULT_TABLE_FORMAT not found")
+    }
+  }
 
-  override def dataWriter: DataWriter = HudiRollupDataWriter
+  override def dataWriter: DataWriter = {
+    DEFAULT_TABLE_FORMAT match {
+      case "delta" =>
+        DeltaRollupDataWriter
+      case "hudi" =>
+        HudiRollupDataWriter
+      case _ =>
+        throw new IllegalArgumentException(
+          s"RollupDataWriter for table format $DEFAULT_TABLE_FORMAT not found")
+    }
+  }
 
   override def stagingDataManagerBuilder: StagingDataManagerFactory =
     DeltaStagingDataManagerFactory

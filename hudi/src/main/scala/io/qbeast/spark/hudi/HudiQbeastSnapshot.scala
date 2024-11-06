@@ -47,8 +47,8 @@ case class HudiQbeastSnapshot(tableID: QTableID) extends QbeastSnapshot {
   }
 
   override lazy val schema: StructType = {
-    val schemaString = metadataMap(HoodieCommitMetadata.SCHEMA_KEY)
-    val avroSchema = new Schema.Parser().parse(schemaString)
+    val jsonSchema = metadataMap(HoodieCommitMetadata.SCHEMA_KEY)
+    val avroSchema = new Schema.Parser().parse(jsonSchema)
     SchemaConverters.toSqlType(avroSchema).dataType.asInstanceOf[StructType]
   }
 
