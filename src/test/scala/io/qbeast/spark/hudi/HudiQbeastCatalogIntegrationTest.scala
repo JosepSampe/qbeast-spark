@@ -82,7 +82,7 @@ object StudentGenerator {
     List("Alice", "Bob", "Charlie", "David", "Eva", "Frank", "Grace", "Hannah", "Isaac", "Jack")
 
   val students: Seq[Student] = {
-    1.to(10).map { i =>
+    1.to(1000).map { i =>
       val name = names(Random.nextInt(names.length)) // Randomly select a name from the list
       val age = Random.nextInt(30) + 18 // Random age between 18 and 47
       Student(i, name, age)
@@ -132,6 +132,7 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
     .set("hoodie.metadata.enable", "true")
     .set("hoodie.file.index.enable", "true")
     .set("spark.qbeast.tableFormat", "hudi")
+    .set("spark.qbeast.index.defaultCubeSize", "10")
 
   // .set("spark.sql.catalog.qbeast_catalog", "io.qbeast.catalog.QbeastCatalog")
 
@@ -457,8 +458,9 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
       metadataDF.show(numRows = 100, truncate = false)
 
       spark.read
-        .format("hudi")
+        .format("qbeast")
         .load(basePath)
+        .sample(0.1)
         .show(numRows = 100, truncate = false)
 
     }

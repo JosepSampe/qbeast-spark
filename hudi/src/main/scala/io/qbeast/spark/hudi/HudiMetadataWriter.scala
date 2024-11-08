@@ -25,6 +25,7 @@ import io.qbeast.spark.writer.StatsTracker.registerStatsTrackers
 import io.qbeast.IISeq
 import org.apache.hudi.client.SparkRDDWriteClient
 import org.apache.hudi.client.WriteStatus
+import org.apache.hudi.common.config.ConfigProperty
 import org.apache.hudi.common.fs.FSUtils
 import org.apache.hudi.common.model.HoodieCommitMetadata
 import org.apache.hudi.common.model.HoodiePartitionMetadata
@@ -33,11 +34,14 @@ import org.apache.hudi.common.model.WriteOperationType
 import org.apache.hudi.common.table.timeline.HoodieActiveTimeline
 import org.apache.hudi.common.table.timeline.HoodieInstant
 import org.apache.hudi.common.table.timeline.HoodieInstant.State
+import org.apache.hudi.common.table.HoodieTableConfig
 import org.apache.hudi.common.table.HoodieTableMetaClient
 import org.apache.hudi.common.util.CommitUtils
 import org.apache.hudi.common.util.HoodieTimer
 import org.apache.hudi.common.util.Option
 import org.apache.hudi.common.util.StringUtils.getUTF8Bytes
+import org.apache.hudi.hadoop.fs.HadoopFSUtils
+import org.apache.hudi.storage.StoragePath
 import org.apache.hudi.table.HoodieSparkTable
 import org.apache.hudi.DataSourceUtils
 import org.apache.hudi.HoodieWriterUtils
@@ -267,7 +271,7 @@ private[hudi] case class HudiMetadataWriter(
       writeStatusList += writeStatus
 
       val metadata = Map(
-        // TagUtils.revision -> indexFile.revisionId.toString,
+        TagUtils.revision -> indexFile.revisionId.toString,
         TagUtils.blocks -> mapper.readTree(encodeBlocks(indexFile.blocks)))
       qbeastMetadata += (indexFile.path -> metadata)
     })
@@ -277,13 +281,24 @@ private[hudi] case class HudiMetadataWriter(
     val baseConfiguration: Configuration = Map.empty
     val qbeastRevisions = updateQbeastRevision(baseConfiguration, tableChanges.updatedRevision)
 
-    // Try to store lastRevisionID in table properties (Not possible by default)
-    extraMeta.put(MetadataConfig.lastRevisionID, tableChanges.updatedRevision.revisionID.toString)
-
-    extraMeta.put(MetadataConfig.revisions, mapper.writeValueAsString(qbeastRevisions))
+    // Write qbeast metadata to the table properties
+    // extraMeta.put(MetadataConfig.lastRevisionID, tableChanges.updatedRevision.revisionID.toString)
+    // extraMeta.put(MetadataConfig.revisions, mapper.writeValueAsString(qbeastRevisions))
+    val lastRevisionIdProperty: ConfigProperty[String] =
+      ConfigProperty
+        .key(MetadataConfig.lastRevisionID)
+        .defaultValue(tableChanges.updatedRevision.revisionID.toString)
+    val revisionsProperty: ConfigProperty[String] =
+      ConfigProperty
+        .key(MetadataConfig.revisions)
+        .defaultValue(mapper.writeValueAsString(qbeastRevisions))
+    val tableProperties = metaClient.getTableConfig
+    tableProperties.setDefaultValue(lastRevisionIdProperty)
+    tableProperties.setDefaultValue(revisionsProperty)
+    val metaPathDir = new StoragePath(basePath, HoodieTableMetaClient.METAFOLDER_NAME)
+    HoodieTableConfig.create(metaClient.getStorage, metaPathDir, tableProperties.getProps())
 
     val writeStatusRdd = jsc.parallelize(writeStatusList)
-
     hudiClient.commit(instantTime, writeStatusRdd, Option.of(extraMeta))
 
   }

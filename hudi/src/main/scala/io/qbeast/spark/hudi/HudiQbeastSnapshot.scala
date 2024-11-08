@@ -67,16 +67,21 @@ case class HudiQbeastSnapshot(tableID: QTableID) extends QbeastSnapshot {
   }
 
   private val metadataMap: Map[String, String] = {
-    val timeline = loadTimeline()
+    val metaClient = loadMetaClient()
+    val timeline = metaClient.getActiveTimeline.getCommitTimeline.filterCompletedInstants
     val lastInstant = timeline.filterCompletedInstants.lastInstant()
-    if (lastInstant.isPresent) {
-      val commitMetadataBytes = timeline.getInstantDetails(lastInstant.get()).get()
-      val commitMetadata =
-        HoodieCommitMetadata.fromBytes(commitMetadataBytes, classOf[HoodieCommitMetadata])
-      commitMetadata.getExtraMetadata.asScala.toMap
-    } else {
-      Map.empty
-    }
+    val commitMetadataMap: Map[String, String] =
+      if (lastInstant.isPresent) {
+        val commitMetadataBytes = timeline.getInstantDetails(lastInstant.get()).get()
+        val commitMetadata =
+          HoodieCommitMetadata.fromBytes(commitMetadataBytes, classOf[HoodieCommitMetadata])
+        commitMetadata.getExtraMetadata.asScala.toMap
+      } else {
+        Map.empty[String, String]
+      }
+    val tablePropsMap: Map[String, String] =
+      metaClient.getTableConfig.getProps.asScala.toMap
+    tablePropsMap ++ commitMetadataMap
   }
 
   override def loadProperties: Map[String, String] = {

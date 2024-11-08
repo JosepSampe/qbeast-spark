@@ -19,7 +19,6 @@ import io.qbeast.core.model.mapper
 import io.qbeast.core.model.Revision
 import io.qbeast.core.model.StagingUtils
 import io.qbeast.spark.utils.MetadataConfig
-import io.qbeast.spark.utils.MetadataConfig.lastRevisionID
 import io.qbeast.spark.utils.MetadataConfig.revision
 import org.apache.spark.sql.types.ArrayType
 import org.apache.spark.sql.types.DataType

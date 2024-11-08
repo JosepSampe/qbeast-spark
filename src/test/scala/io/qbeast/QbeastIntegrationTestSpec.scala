@@ -23,9 +23,6 @@ import io.qbeast.core.keeper.LocalKeeper
 import io.qbeast.core.model.IndexManager
 import io.qbeast.core.model.QTableID
 import io.qbeast.core.model.QbeastSnapshot
-import io.qbeast.spark.delta.DeltaMetadataManager
-import io.qbeast.spark.delta.DeltaRollupDataWriter
-import io.qbeast.spark.delta.DeltaStagingDataManagerFactory
 import io.qbeast.spark.index.SparkColumnsToIndexSelector
 import io.qbeast.spark.index.SparkOTreeManager
 import io.qbeast.spark.index.SparkRevisionFactory
@@ -57,7 +54,8 @@ trait QbeastIntegrationTestSpec extends AnyFlatSpec with Matchers with DatasetCo
   // Including Session Extensions and Catalog
   def sparkConfWithSqlAndCatalog: SparkConf = new SparkConf()
     .setMaster("local[8]")
-    .set("spark.sql.extensions", "io.qbeast.sql.QbeastSparkSessionExtension")
+    .set("spark.sql.extensions", "io.qbeast.sql.HudiQbeastSparkSessionExtension")
+    .set("spark.qbeast.tableFormat", "hudi")
     .set(SQLConf.V2_SESSION_CATALOG_IMPLEMENTATION.key, "io.qbeast.catalog.QbeastCatalog")
 
   def loadTestData(spark: SparkSession): DataFrame = spark.read
@@ -136,7 +134,7 @@ trait QbeastIntegrationTestSpec extends AnyFlatSpec with Matchers with DatasetCo
     } finally {
       import scala.reflect.io.Directory
       val d = new Directory(directory.toFile)
-      d.deleteRecursively()
+      // d.deleteRecursively()
     }
   }
 
@@ -162,9 +160,9 @@ trait QbeastIntegrationTestSpec extends AnyFlatSpec with Matchers with DatasetCo
       val indexedTableFactory = new IndexedTableFactoryImpl(
         keeper,
         SparkOTreeManager,
-        DeltaMetadataManager,
-        DeltaRollupDataWriter,
-        DeltaStagingDataManagerFactory,
+        QbeastContext.metadataManager,
+        QbeastContext.dataWriter,
+        QbeastContext.stagingDataManagerBuilder,
         SparkRevisionFactory,
         SparkColumnsToIndexSelector)
       val context = new QbeastContextImpl(spark.sparkContext.getConf, keeper, indexedTableFactory)
