@@ -40,10 +40,6 @@ import java.net.URI
  */
 object DeltaRollupDataWriter extends RollupDataWriter with DeltaStatsCollectionUtils {
 
-  override type GetCubeMaxWeight = CubeId => Weight
-  override type Extract = InternalRow => (InternalRow, Weight, CubeId, CubeId)
-  override type WriteRows = Iterator[InternalRow] => Iterator[(IndexFile, TaskStats)]
-
   override def write(
       tableId: QTableID,
       schema: StructType,

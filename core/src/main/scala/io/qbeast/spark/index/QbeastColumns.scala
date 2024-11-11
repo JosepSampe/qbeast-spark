@@ -54,13 +54,19 @@ object QbeastColumns {
    */
   val cubeToRollupColumnName = "_qbeastCubeToRollup"
 
+  /**
+   * Cube to rollup file name column name.
+   */
+  val cubeToRollupFileName = "_qbeastCubeToRollupFileName"
+
   val columnNames: Set[String] = Set(
     weightColumnName,
     cubeColumnName,
     stateColumnName,
     revisionColumnName,
     cubeToReplicateColumnName,
-    cubeToRollupColumnName)
+    cubeToRollupColumnName,
+    cubeToRollupFileName)
 
   /**
    * Creates an instance for a given data frame.
@@ -88,7 +94,8 @@ object QbeastColumns {
       stateColumnIndex = columnIndexes.getOrElse(stateColumnName, -1),
       revisionColumnIndex = columnIndexes.getOrElse(revisionColumnName, -1),
       cubeToReplicateColumnIndex = columnIndexes.getOrElse(cubeToReplicateColumnName, -1),
-      cubeToRollupColumnIndex = columnIndexes.getOrElse(cubeToRollupColumnName, -1))
+      cubeToRollupColumnIndex = columnIndexes.getOrElse(cubeToRollupColumnName, -1),
+      cubeToRollupFileNameColumnIndex = columnIndexes.getOrElse(cubeToRollupFileName, -1))
   }
 
   /**
@@ -129,6 +136,8 @@ object QbeastColumns {
  *   the cube to replicate column index or -1 if it is missing
  * @param cubeToRollupColumnIndex
  *   the cube to rollup column index or -1 if it is missing
+ * @param cubeToRollupFileNameColumnIndex
+ *   the cube to rollup file name column index or -1 if it is missing
  */
 case class QbeastColumns(
     weightColumnIndex: Int,
@@ -136,7 +145,8 @@ case class QbeastColumns(
     stateColumnIndex: Int,
     revisionColumnIndex: Int,
     cubeToReplicateColumnIndex: Int,
-    cubeToRollupColumnIndex: Int) {
+    cubeToRollupColumnIndex: Int,
+    cubeToRollupFileNameColumnIndex: Int) {
 
   /**
    * Returns whether a given column is one of the Qbeast columns.
@@ -152,7 +162,8 @@ case class QbeastColumns(
     columnIndex == stateColumnIndex ||
     columnIndex == revisionColumnIndex ||
     columnIndex == cubeToReplicateColumnIndex ||
-    columnIndex == cubeToRollupColumnIndex
+    columnIndex == cubeToRollupColumnIndex ||
+    columnIndex == cubeToRollupFileNameColumnIndex
   }
 
   /**
@@ -202,4 +213,12 @@ case class QbeastColumns(
    *   the cube to rollup column exists
    */
   def hasCubeToRollupColumn: Boolean = cubeToRollupColumnIndex >= 0
+
+  /**
+   * Returns whether the cube to rollup file name column exists.
+   *
+   * @return
+   *   the cube to rollup file name column exists
+   */
+  def hasCubeToRollupFileNameColumn: Boolean = cubeToRollupFileNameColumnIndex >= 0
 }

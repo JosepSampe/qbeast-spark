@@ -132,7 +132,7 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
     .set("hoodie.metadata.enable", "true")
     .set("hoodie.file.index.enable", "true")
     .set("spark.qbeast.tableFormat", "hudi")
-    .set("spark.qbeast.index.defaultCubeSize", "10")
+    .set("spark.qbeast.index.defaultCubeSize", "100")
 
   // .set("spark.sql.catalog.qbeast_catalog", "io.qbeast.catalog.QbeastCatalog")
 
@@ -458,10 +458,16 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
       metadataDF.show(numRows = 100, truncate = false)
 
       spark.read
-        .format("qbeast")
+        .format("hudi")
         .load(basePath)
-        .sample(0.1)
-        .show(numRows = 100, truncate = false)
+        // .sample(0.1)
+        .show(numRows = 1000, truncate = false)
+
+      println(
+        spark.read
+          .format("hudi")
+          .load(basePath)
+          .count())
 
     }
 
