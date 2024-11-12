@@ -53,7 +53,8 @@ case class ConvertToQbeastCommand(
     // If the table is a path table, it is a parquet or delta/qbeast table
     val provider = tableIdentifier.database.getOrElse("")
     val isPathTable = new Path(tableIdentifier.table).isAbsolute
-    val isCorrectFormat = provider == "parquet" || provider == "delta" || provider == "qbeast"
+    val isCorrectFormat =
+      provider == "parquet" || provider == "delta" || provider == "hudi" || provider == "qbeast"
 
     if (isPathTable && isCorrectFormat) (provider, tableIdentifier)
     else if (!isCorrectFormat)
@@ -85,6 +86,7 @@ case class ConvertToQbeastCommand(
                   s"Failed to convert the parquet table into delta: $deltaMsg")
           }
         case "delta" =>
+        case "hudi" =>
         case _ => throw AnalysisExceptionFactory.create(unsupportedFormatExceptionMsg(fileFormat))
       }
 

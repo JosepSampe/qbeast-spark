@@ -16,6 +16,7 @@
 package io.qbeast.catalog
 
 import io.qbeast.QbeastIntegrationTestSpec
+import org.apache.spark.qbeast.config.DEFAULT_TABLE_FORMAT
 import org.apache.spark.sql.catalyst.TableIdentifier
 import org.apache.spark.sql.delta.DeltaLog
 import org.apache.spark.sql.AnalysisException
@@ -27,14 +28,20 @@ class QbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec with Catalo
     "coexist with Delta table" in withTmpDir(tmpDir =>
       withExtendedSpark(sparkConf = new SparkConf()
         .setMaster("local[8]")
-        .set("spark.sql.extensions", "io.qbeast.sql.QbeastSparkSessionExtension")
+        .set("spark.sql.extensions", "io.qbeast.sql.HudiQbeastSparkSessionExtension")
         .set("spark.sql.warehouse.dir", tmpDir)
-        .set("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog")
+        .set("spark.qbeast.tableFormat", "hudi")
+        .set("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
+        .set("spark.kryo.registrator", "org.apache.spark.HoodieSparkKryoRegistrar")
+        .set("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.hudi.catalog.HoodieCatalog")
         .set("spark.sql.catalog.qbeast_catalog", "io.qbeast.catalog.QbeastCatalog"))(spark => {
 
         val data = createTestData(spark)
 
-        data.write.format("delta").saveAsTable("delta_table") // delta catalog
+        val tableFormat = DEFAULT_TABLE_FORMAT
+        val table_name = s"${tableFormat}_table"
+
+        data.write.format(tableFormat).saveAsTable(table_name) // delta catalog
 
         data.write
           .format("qbeast")
@@ -44,8 +51,12 @@ class QbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec with Catalo
         val tables = spark.sessionState.catalog.listTables("default")
         tables.size shouldBe 2
 
-        val deltaTable = spark.read.table("delta_table")
+        val deltaTable = spark.read.table(table_name)
         val qbeastTable = spark.read.table("qbeast_catalog.default.qbeast_table")
+
+        deltaTable.show(10000, false)
+
+        qbeastTable.show(10000, false)
 
         assertSmallDatasetEquality(
           deltaTable,

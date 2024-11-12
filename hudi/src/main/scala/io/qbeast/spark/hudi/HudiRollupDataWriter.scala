@@ -47,6 +47,8 @@ object HudiRollupDataWriter extends RollupDataWriter {
       tableChanges: TableChanges,
       commitTime: String): IISeq[IndexFile] = {
 
+    if (data.isEmpty) return Seq.empty[IndexFile].toIndexedSeq
+
     val statsTrackers = StatsTracker.getStatsTrackers
 
     val extendedData = extendDataWithCubeToRollup(data, tableChanges)
