@@ -106,8 +106,11 @@ trait RollupDataWriter extends DataWriter {
       val weight = Weight(extendedRow.getInt(qbeastColumns.weightColumnIndex))
       val cubeIdBytes = extendedRow.getBinary(qbeastColumns.cubeColumnIndex)
       val cubeId = revision.createCubeId(cubeIdBytes)
-      val rollupCubeIdFileName =
-        extendedRow.getString(qbeastColumns.cubeToRollupFileNameColumnIndex)
+      val fileNameColumnIndex = qbeastColumns.cubeToRollupFileNameColumnIndex
+      val rollupCubeIdFileName = {
+        if (fileNameColumnIndex != -1) extendedRow.getString(fileNameColumnIndex)
+        else extendedRow.getString(qbeastColumns.cubeToRollupColumnIndex) + ".parquet"
+      }
       (row, weight, cubeId, rollupCubeIdFileName)
     }
   }
@@ -148,11 +151,18 @@ trait RollupDataWriter extends DataWriter {
     val uuidCache = mutable.Map[CubeId, String]()
     rollup.foreach { case (_, cubeToRollupId) =>
       if (!uuidCache.contains(cubeToRollupId)) {
-        val newUUID = UUID.randomUUID().toString
-        uuidCache(cubeToRollupId) = newUUID
+        uuidCache(cubeToRollupId) = UUID.randomUUID().toString
       }
     }
     uuidCache.toMap
+//    val sortedUUIDs = uuidCache.toSeq.sortBy(_._1)
+//    val sortedUUIDsCache = mutable.Map[CubeId, String]()
+//    sortedUUIDs.zipWithIndex.foreach { case ((cubeToRollupId, uuid), index) =>
+//      if (!sortedUUIDsCache.contains(cubeToRollupId)) {
+//        sortedUUIDsCache(cubeToRollupId) = s"${uuid}_$index"
+//      }
+//    }
+//    sortedUUIDsCache.toMap
   }
 
   private def getRollupCubeIdUDF(

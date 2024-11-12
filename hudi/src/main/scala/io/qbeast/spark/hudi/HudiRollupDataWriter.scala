@@ -44,14 +44,13 @@ object HudiRollupDataWriter extends RollupDataWriter {
       tableId: QTableID,
       schema: StructType,
       data: DataFrame,
-      tableChanges: TableChanges): IISeq[IndexFile] = {
-
-    val instantTime = "20241030163011087"
+      tableChanges: TableChanges,
+      commitTime: String): IISeq[IndexFile] = {
 
     val statsTrackers = StatsTracker.getStatsTrackers
 
     val extendedData = extendDataWithCubeToRollup(data, tableChanges)
-    val hudiData = extendDataWithHudiColumns(extendedData, instantTime)
+    val hudiData = extendDataWithHudiColumns(extendedData, commitTime)
 
     val hudiSchema = schema
       .add(StructField("_hoodie_commit_time", StringType, nullable = false))
@@ -125,10 +124,10 @@ object HudiRollupDataWriter extends RollupDataWriter {
           lit("-0_"),
           col("_token"),
           lit("_"),
-          lit("20241030163011087"),
+          lit(commitTime),
           lit(".parquet")))
       .withColumn(QbeastColumns.cubeToRollupFileName, col("_hoodie_file_name"))
-      .drop("_uuid", "_token")
+      .drop("_token")
   }
 
 }

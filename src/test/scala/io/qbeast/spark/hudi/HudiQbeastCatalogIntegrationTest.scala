@@ -124,7 +124,7 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
   }
 
   val hudiSparkConf: SparkConf = new SparkConf()
-    .setMaster("local[8]")
+    .setMaster("local[*]")
     .set("spark.sql.extensions", "io.qbeast.sql.HudiQbeastSparkSessionExtension")
     .set("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
     .set("spark.kryo.registrator", "org.apache.spark.HoodieSparkKryoRegistrar")
@@ -439,12 +439,12 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
         // .option("hoodie.metadata.record.index.enable", "true")
         .save(basePath)
 
-//      Thread.sleep(2000)
-//      val data2 = createTestData(spark)
-//      data2.write
-//        .format("hudi")
-//        .mode("append")
-//        .save(basePath)
+      Thread.sleep(2000)
+      val data2 = createTestData(spark)
+      data2.write
+        .format("hudi")
+        .mode("append")
+        .save(basePath)
     }
 
   it should
@@ -458,14 +458,14 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
       metadataDF.show(numRows = 100, truncate = false)
 
       spark.read
-        .format("hudi")
+        .format("qbeast")
         .load(basePath)
-        // .sample(0.1)
-        .show(numRows = 1000, truncate = false)
+        .sample(0.1)
+        .show(numRows = 10, truncate = false)
 
       println(
         spark.read
-          .format("hudi")
+          .format("qbeast")
           .load(basePath)
           .count())
 

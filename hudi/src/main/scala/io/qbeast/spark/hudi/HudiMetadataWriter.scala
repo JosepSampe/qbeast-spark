@@ -203,15 +203,15 @@ private[hudi] case class HudiMetadataWriter(
     }
   }
 
-  def writeWithTransaction(writer: => (TableChanges, Seq[IndexFile], Seq[DeleteFile])): Unit = {
+  def writeWithTransaction(
+      writer: String => (TableChanges, Seq[IndexFile], Seq[DeleteFile])): Unit = {
 
     val hudiClient = createHoodieClient()
 
     val commitActionType =
       CommitUtils.getCommitActionType(WriteOperationType.BULK_INSERT, metaClient.getTableType)
-    // val instantTime = HoodieActiveTimeline.createNewInstantTime
-    val instantTime = "20241030163011087"
 
+    val instantTime = HoodieActiveTimeline.createNewInstantTime
     hudiClient.startCommitWithTime(instantTime, commitActionType)
     hudiClient.setOperationType(WriteOperationType.BULK_INSERT)
 
@@ -227,7 +227,7 @@ private[hudi] case class HudiMetadataWriter(
     val extraMeta = new util.HashMap[String, String]()
 
     val currTimer = HoodieTimer.start()
-    val (tableChanges, indexFiles, deleteFiles) = writer
+    val (tableChanges, indexFiles, deleteFiles) = writer(instantTime)
     val totalWriteTime = currTimer.endTimer()
 
     val partitionMetadata =

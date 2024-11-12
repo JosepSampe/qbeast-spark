@@ -488,9 +488,10 @@ private[table] class IndexedTableImpl(
         val schema = dataToWrite.schema
         val deleteFiles = removeFiles.toIndexedSeq
         metadataManager.updateWithTransaction(tableID, schema, options, append) {
-          val (qbeastData, tableChanges) = indexManager.index(dataToWrite, indexStatus)
-          val addFiles = dataWriter.write(tableID, schema, qbeastData, tableChanges)
-          (tableChanges, addFiles, deleteFiles)
+          commitTime: String =>
+            val (qbeastData, tableChanges) = indexManager.index(dataToWrite, indexStatus)
+            val addFiles = dataWriter.write(tableID, schema, qbeastData, tableChanges, commitTime)
+            (tableChanges, addFiles, deleteFiles)
         }
     }
     logTrace(s"End: Writing data to table $tableID")
@@ -540,7 +541,7 @@ private[table] class IndexedTableImpl(
           tableID,
           schema,
           optimizationOptions(options),
-          append = true) {
+          append = true) { commitTime: String =>
           import indexFiles.sparkSession.implicits._
           val deleteFiles: IISeq[DeleteFile] = indexFiles
             .map { indexFile =>
@@ -556,7 +557,7 @@ private[table] class IndexedTableImpl(
           val (dataExtended, tableChanges) =
             DoublePassOTreeDataAnalyzer.analyzeOptimize(data, indexStatus)
           val addFiles = dataWriter
-            .write(tableID, schema, dataExtended, tableChanges)
+            .write(tableID, schema, dataExtended, tableChanges, commitTime)
             .collect { case indexFile: IndexFile =>
               indexFile.copy(dataChange = false)
             }

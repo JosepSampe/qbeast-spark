@@ -44,7 +44,8 @@ object DeltaRollupDataWriter extends RollupDataWriter with DeltaStatsCollectionU
       tableId: QTableID,
       schema: StructType,
       data: DataFrame,
-      tableChanges: TableChanges): IISeq[IndexFile] = {
+      tableChanges: TableChanges,
+      commitTime: String): IISeq[IndexFile] = {
     val revision = tableChanges.updatedRevision
     val dimensionCount = revision.transformations.length
 
