@@ -56,6 +56,8 @@ trait QbeastIntegrationTestSpec extends AnyFlatSpec with Matchers with DatasetCo
     .setMaster("local[8]")
     .set("spark.sql.extensions", "io.qbeast.sql.HudiQbeastSparkSessionExtension")
     .set("spark.qbeast.tableFormat", "hudi")
+    .set("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
+    .set("spark.kryo.registrator", "org.apache.spark.HoodieSparkKryoRegistrar")
     .set(SQLConf.V2_SESSION_CATALOG_IMPLEMENTATION.key, "io.qbeast.catalog.QbeastCatalog")
 
   def loadTestData(spark: SparkSession): DataFrame = spark.read

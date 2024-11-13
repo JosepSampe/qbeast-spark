@@ -46,6 +46,9 @@ object DeltaRollupDataWriter extends RollupDataWriter with DeltaStatsCollectionU
       data: DataFrame,
       tableChanges: TableChanges,
       commitTime: String): IISeq[IndexFile] = {
+
+    if (data.isEmpty) return Seq.empty[IndexFile].toIndexedSeq
+
     val revision = tableChanges.updatedRevision
     val dimensionCount = revision.transformations.length
 
