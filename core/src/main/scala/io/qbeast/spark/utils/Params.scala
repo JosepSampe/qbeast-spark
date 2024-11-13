@@ -35,4 +35,5 @@ object MetadataConfig {
   final val blocks = "qbeast.blocks"
   final val revision = "qbeast.revision"
   final val lastRevisionID = "qbeast.lastRevisionID"
+  final val configuration = "qbeast.configuration"
 }

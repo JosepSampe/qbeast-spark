@@ -81,7 +81,19 @@ case class HudiQbeastSnapshot(tableID: QTableID) extends QbeastSnapshot {
       }
     val tablePropsMap: Map[String, String] =
       metaClient.getTableConfig.getProps.asScala.toMap
-    tablePropsMap ++ commitMetadataMap
+    val configuration = {
+      if (tablePropsMap.contains(MetadataConfig.configuration))
+        mapper
+          .readTree(tablePropsMap(MetadataConfig.configuration))
+          .fields()
+          .asScala
+          .map(entry => entry.getKey -> entry.getValue.asText())
+          .toMap
+      else
+        Map.empty[String, String]
+    }
+
+    configuration ++ commitMetadataMap
   }
 
   override def loadProperties: Map[String, String] = {
@@ -91,19 +103,8 @@ case class HudiQbeastSnapshot(tableID: QTableID) extends QbeastSnapshot {
 
   override def loadDescription: String = s"Hudi table snapshot at ${tableID.id}"
 
-  // Revision map based on metadata properties
   private val revisionsMap: Map[RevisionID, Revision] = {
-    val revisionsMetadata = if (metadataMap.contains(MetadataConfig.revisions)) {
-      mapper
-        .readTree(metadataMap(MetadataConfig.revisions))
-        .fields()
-        .asScala
-        .map(entry => entry.getKey -> entry.getValue.asText())
-        .toMap
-    } else {
-      Map.empty
-    }
-    val listRevisions = revisionsMetadata.filterKeys(_.startsWith(MetadataConfig.revision))
+    val listRevisions = metadataMap.filterKeys(_.startsWith(MetadataConfig.revision))
     listRevisions.map { case (key, json) =>
       val revisionID = key.split('.').last.toLong
       val revision = mapper.readValue[Revision](json, classOf[Revision])
@@ -129,7 +130,7 @@ case class HudiQbeastSnapshot(tableID: QTableID) extends QbeastSnapshot {
   private def getRevision(revisionID: RevisionID): Revision = {
     revisionsMap.getOrElse(
       revisionID,
-      throw AnalysisExceptionFactory.create(s"No space revision available with $revisionID"))
+      throw AnalysisExceptionFactory.create(s"Revision $revisionID not found"))
   }
 
   override def existsRevision(revisionID: RevisionID): Boolean = revisionsMap.contains(revisionID)

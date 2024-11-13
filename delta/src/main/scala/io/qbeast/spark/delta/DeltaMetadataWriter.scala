@@ -271,7 +271,9 @@ private[delta] case class DeltaMetadataWriter(
       removeFiles: Seq[RemoveFile],
       extraConfiguration: Configuration): Seq[Action] = {
 
-    if (txn.readVersion > -1) {
+    val isNewTable = txn.readVersion > -1
+
+    if (!isNewTable) {
       // This table already exists, check if the insert is valid.
       if (mode == SaveMode.ErrorIfExists) {
         throw AnalysisExceptionFactory.create(s"Path '${deltaLog.dataPath}' already exists.'")
@@ -285,23 +287,25 @@ private[delta] case class DeltaMetadataWriter(
 
     val isOptimizeOperation: Boolean = tableChanges.isOptimizeOperation
 
+    val (newConfiguration, hasRevisionUpdate) = updateConfiguration(
+      txn.metadata.configuration,
+      isNewTable,
+      isOverwriteOperation,
+      tableChanges,
+      qbeastOptions)
+
     // The Metadata can be updated only once in a single transaction
     // If a new space revision or a new replicated set is detected,
     // we update everything in the same operation
-    updateQbeastMetadata(
+    updateTableMetadata(
       txn,
       schema,
       isOverwriteOperation,
       rearrangeOnly,
-      tableChanges,
-      qbeastOptions)
+      newConfiguration,
+      hasRevisionUpdate)
 
-    if (txn.readVersion < 0) {
-      // Initialize the log path
-      val fs = deltaLog.logPath.getFileSystem(sparkSession.sessionState.newHadoopConf)
-
-      fs.mkdirs(deltaLog.logPath)
-    }
+    if (isNewTable) deltaLog.createLogDirectory()
 
     val deletedFiles = mode match {
       case SaveMode.Overwrite =>

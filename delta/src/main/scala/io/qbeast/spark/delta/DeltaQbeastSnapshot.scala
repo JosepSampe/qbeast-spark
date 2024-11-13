@@ -88,8 +88,7 @@ case class DeltaQbeastSnapshot(tableID: QTableID) extends QbeastSnapshot with De
     val listRevisions = metadataMap.filterKeys(_.startsWith(MetadataConfig.revision))
     listRevisions.map { case (key: String, json: String) =>
       val revisionID = key.split('.').last.toLong
-      val revision = mapper
-        .readValue[Revision](json, classOf[Revision])
+      val revision = mapper.readValue[Revision](json, classOf[Revision])
       (revisionID, revision)
     }
   }

@@ -23,9 +23,10 @@ import io.qbeast.spark.utils.MetadataConfig
 import io.qbeast.spark.utils.TagUtils
 import io.qbeast.spark.writer.StatsTracker.registerStatsTrackers
 import io.qbeast.IISeq
+import org.apache.hadoop.fs.FileSystem
+import org.apache.hadoop.fs.Path
 import org.apache.hudi.client.SparkRDDWriteClient
 import org.apache.hudi.client.WriteStatus
-import org.apache.hudi.common.config.ConfigProperty
 import org.apache.hudi.common.fs.FSUtils
 import org.apache.hudi.common.model.HoodieCommitMetadata
 import org.apache.hudi.common.model.HoodiePartitionMetadata
@@ -34,14 +35,11 @@ import org.apache.hudi.common.model.WriteOperationType
 import org.apache.hudi.common.table.timeline.HoodieActiveTimeline
 import org.apache.hudi.common.table.timeline.HoodieInstant
 import org.apache.hudi.common.table.timeline.HoodieInstant.State
-import org.apache.hudi.common.table.HoodieTableConfig
 import org.apache.hudi.common.table.HoodieTableMetaClient
 import org.apache.hudi.common.util.CommitUtils
 import org.apache.hudi.common.util.HoodieTimer
 import org.apache.hudi.common.util.Option
 import org.apache.hudi.common.util.StringUtils.getUTF8Bytes
-import org.apache.hudi.hadoop.fs.HadoopFSUtils
-import org.apache.hudi.storage.StoragePath
 import org.apache.hudi.table.HoodieSparkTable
 import org.apache.hudi.DataSourceUtils
 import org.apache.hudi.HoodieWriterUtils
@@ -52,11 +50,13 @@ import org.apache.spark.sql.execution.datasources.BasicWriteJobStatsTracker
 import org.apache.spark.sql.execution.datasources.WriteJobStatsTracker
 import org.apache.spark.sql.hudi.HoodieSqlCommonUtils.isHoodieConfigKey
 import org.apache.spark.sql.types.StructType
+import org.apache.spark.sql.AnalysisExceptionFactory
 import org.apache.spark.sql.SaveMode
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.util.SerializableConfiguration
 
 import java.io.StringWriter
+import java.lang.System.currentTimeMillis
 import java.util
 import scala.collection.mutable
 import scala.collection.mutable.ListBuffer
@@ -88,11 +88,19 @@ private[hudi] case class HudiMetadataWriter(
 
   // private def isOverwriteMode: Boolean = mode == SaveMode.Overwrite
 
-  private val sparkSession = SparkSession.active
+  private val spark = SparkSession.active
   private val jsonFactory = new JsonFactory()
 
   private val basePath = tableID.id
-  private val jsc = new JavaSparkContext(sparkSession.sparkContext)
+  private val logPath = new Path(basePath, ".hoodie")
+  private val jsc = new JavaSparkContext(spark.sparkContext)
+
+  private val isNewTable: Boolean = {
+    val fs = FileSystem.get(spark.sparkContext.hadoopConfiguration)
+    !fs.exists(logPath)
+  }
+
+  private def isOverwriteOperation: Boolean = mode == SaveMode.Overwrite
 
 //  private val writeConfig = HoodieWriteConfig
 //    .newBuilder()
@@ -107,7 +115,7 @@ private[hudi] case class HudiMetadataWriter(
   private def createStatsTrackers(): Seq[WriteJobStatsTracker] = {
     val statsTrackers: ListBuffer[WriteJobStatsTracker] = ListBuffer()
     // Create basic stats trackers to add metrics on the Write Operation
-    val hadoopConf = sparkSession.sessionState.newHadoopConf()
+    val hadoopConf = spark.sessionState.newHadoopConf()
     val basicWriteJobStatsTracker = new BasicWriteJobStatsTracker(
       new SerializableConfiguration(hadoopConf),
       BasicWriteJobStatsTracker.metrics)
@@ -137,7 +145,7 @@ private[hudi] case class HudiMetadataWriter(
     // Priority: defaults < catalog props < table config < sparkSession conf < specified conf
     val finalParameters = HoodieWriterUtils.parametersWithWriteDefaults(
       metaClient.getTableConfig.getProps.asScala.toMap ++
-        sparkSession.sqlContext.getAllConfs.filterKeys(isHoodieConfigKey) ++
+        spark.sqlContext.getAllConfs.filterKeys(isHoodieConfigKey) ++
         conf)
 
     DataSourceUtils.createHoodieClient(
@@ -208,18 +216,18 @@ private[hudi] case class HudiMetadataWriter(
 
     val hudiClient = createHoodieClient()
 
-    val commitActionType =
-      CommitUtils.getCommitActionType(WriteOperationType.BULK_INSERT, metaClient.getTableType)
+    val operationType = WriteOperationType.BULK_INSERT
+    val commitActionType = CommitUtils.getCommitActionType(operationType, metaClient.getTableType)
 
     val instantTime = HoodieActiveTimeline.createNewInstantTime
     hudiClient.startCommitWithTime(instantTime, commitActionType)
-    hudiClient.setOperationType(WriteOperationType.BULK_INSERT)
+    hudiClient.setOperationType(operationType)
 
     val hoodieTable = HoodieSparkTable.create(hudiClient.getConfig, hudiClient.getEngineContext)
     val timeLine = hoodieTable.getActiveTimeline
     val requested = new HoodieInstant(State.REQUESTED, commitActionType, instantTime)
     val metadata = new HoodieCommitMetadata
-    metadata.setOperationType(WriteOperationType.BULK_INSERT)
+    metadata.setOperationType(operationType)
     timeLine.transitionRequestedToInflight(
       requested,
       Option.of(getUTF8Bytes(metadata.toJsonString)))
@@ -230,6 +238,10 @@ private[hudi] case class HudiMetadataWriter(
     val (tableChanges, indexFiles, deleteFiles) = writer(instantTime)
     val totalWriteTime = currTimer.endTimer()
 
+    // Update Qbeast Metadata (replicated set, revision..)
+    var qbeastFiles =
+      updateMetadata(tableChanges, indexFiles, deleteFiles, qbeastOptions.extraOptions)
+
     val partitionMetadata =
       new HoodiePartitionMetadata(
         metaClient.getStorage,
@@ -238,9 +250,6 @@ private[hudi] case class HudiMetadataWriter(
         metaClient.getBasePathV2,
         Option.empty())
     partitionMetadata.trySave()
-
-    val commitMetadata = new HoodieCommitMetadata()
-    commitMetadata.setOperationType(WriteOperationType.BULK_INSERT)
 
     val qbeastMetadata: mutable.Map[String, Map[String, Object]] = mutable.Map()
     val writeStatusList = ListBuffer[WriteStatus]()
@@ -275,35 +284,15 @@ private[hudi] case class HudiMetadataWriter(
         TagUtils.blocks -> mapper.readTree(encodeBlocks(indexFile.blocks)))
       qbeastMetadata += (indexFile.path -> metadata)
     })
-    extraMeta.put(MetadataConfig.revision, tableChanges.updatedRevision.revisionID.toString)
+    // extraMeta.put(MetadataConfig.revision, tableChanges.updatedRevision.revisionID.toString)
     extraMeta.put(MetadataConfig.blocks, mapper.writeValueAsString(qbeastMetadata))
-
-    val baseConfiguration: Configuration = Map.empty
-    val qbeastRevisions = updateQbeastRevision(baseConfiguration, tableChanges.updatedRevision)
-
-    // Write qbeast metadata to the table properties
-    // extraMeta.put(MetadataConfig.lastRevisionID, tableChanges.updatedRevision.revisionID.toString)
-    // extraMeta.put(MetadataConfig.revisions, mapper.writeValueAsString(qbeastRevisions))
-    val lastRevisionIdProperty: ConfigProperty[String] =
-      ConfigProperty
-        .key(MetadataConfig.lastRevisionID)
-        .defaultValue(tableChanges.updatedRevision.revisionID.toString)
-    val revisionsProperty: ConfigProperty[String] =
-      ConfigProperty
-        .key(MetadataConfig.revisions)
-        .defaultValue(mapper.writeValueAsString(qbeastRevisions))
-    val tableProperties = metaClient.getTableConfig
-    tableProperties.setDefaultValue(lastRevisionIdProperty)
-    tableProperties.setDefaultValue(revisionsProperty)
-    val metaPathDir = new StoragePath(basePath, HoodieTableMetaClient.METAFOLDER_NAME)
-    HoodieTableConfig.create(metaClient.getStorage, metaPathDir, tableProperties.getProps())
 
     val writeStatusRdd = jsc.parallelize(writeStatusList)
     hudiClient.commit(instantTime, writeStatusRdd, Option.of(extraMeta))
 
   }
 
-  def updateMetadataWithTransaction(update: => Configuration): Unit = {
+  def updateMetadataWithTransaction(configuration: => Configuration): Unit = {
 
     val hudiClient = createHoodieClient()
     val commitActionType =
@@ -321,6 +310,17 @@ private[hudi] case class HudiMetadataWriter(
     timeLine.transitionRequestedToInflight(
       requested,
       Option.of(getUTF8Bytes(metadata.toJsonString)))
+
+    val updatedConfig = configuration.foldLeft(getCurrentConfig) { case (accConf, (k, v)) =>
+      accConf.updated(k, v)
+    }
+
+    updateTableMetadata(
+      metaClient,
+      schema,
+      isOverwriteOperation,
+      updatedConfig,
+      hasRevisionUpdate = true)
 
     hudiClient.commit(instantTime, jsc.emptyRDD)
   }
@@ -342,6 +342,82 @@ private[hudi] case class HudiMetadataWriter(
     generator.close()
     writer.close()
     writer.toString
+  }
+
+  /**
+   * Writes metadata of the table
+   *
+   * @param tableChanges
+   *   changes to apply
+   * @param indexFiles
+   *   files to add
+   * @param deleteFiles
+   *   files to remove
+   * @param extraConfiguration
+   *   extra configuration to apply
+   * @return
+   *   the sequence of file actions to save in the commit log(add, remove...)
+   */
+  protected def updateMetadata(
+      tableChanges: TableChanges,
+      indexFiles: Seq[IndexFile],
+      deleteFiles: Seq[DeleteFile],
+      extraConfiguration: Configuration): Seq[QbeastFile] = {
+
+    if (!isNewTable) {
+      // This table already exists, check if the insert is valid.
+      if (mode == SaveMode.ErrorIfExists) {
+        throw AnalysisExceptionFactory.create(s"Path '${tableID.id}' already exists.'")
+      } else if (mode == SaveMode.Ignore) {
+        return Nil
+      }
+    }
+
+    val (newConfiguration, hasRevisionUpdate) = updateConfiguration(
+      getCurrentConfig,
+      isNewTable,
+      isOverwriteOperation,
+      tableChanges,
+      qbeastOptions)
+
+    updateTableMetadata(
+      metaClient,
+      schema,
+      isOverwriteOperation,
+      newConfiguration,
+      hasRevisionUpdate)
+
+    if (isNewTable) {
+      val fs = FileSystem.get(spark.sessionState.newHadoopConf)
+      fs.mkdirs(logPath)
+    }
+
+    val deletedFiles = mode match {
+      case SaveMode.Overwrite =>
+        indexFiles.map { indexFile =>
+          DeleteFile(
+            path = indexFile.path,
+            size = indexFile.size,
+            dataChange = false,
+            deletionTimestamp = currentTimeMillis())
+        }.toIndexedSeq
+      case _ => deleteFiles
+    }
+
+    indexFiles ++ deletedFiles
+  }
+
+  private def getCurrentConfig: Configuration = {
+    val tablePropsMap = metaClient.getTableConfig.getProps.asScala.toMap
+    if (tablePropsMap.contains(MetadataConfig.configuration))
+      mapper
+        .readTree(tablePropsMap(MetadataConfig.configuration))
+        .fields()
+        .asScala
+        .map(entry => entry.getKey -> entry.getValue.asText())
+        .toMap
+    else
+      Map.empty[String, String]
   }
 
 }

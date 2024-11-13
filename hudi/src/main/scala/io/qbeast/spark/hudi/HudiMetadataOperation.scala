@@ -16,82 +16,50 @@
 package io.qbeast.spark.hudi
 
 import io.qbeast.core.model.mapper
-import io.qbeast.core.model.Revision
-import io.qbeast.core.model.StagingUtils
+import io.qbeast.spark.metadata.MetadataOperation
 import io.qbeast.spark.utils.MetadataConfig
-import io.qbeast.spark.utils.MetadataConfig.revision
-import org.apache.spark.sql.types.ArrayType
-import org.apache.spark.sql.types.DataType
-import org.apache.spark.sql.types.MapType
+import org.apache.hudi.common.table.HoodieTableConfig
+import org.apache.hudi.common.table.HoodieTableMetaClient
+import org.apache.hudi.storage.StoragePath
+import org.apache.spark.sql.types.StructType
 
 /**
  * Qbeast metadata changes on a Delta Table.
  */
-private[hudi] trait HudiMetadataOperation extends StagingUtils {
-
-  type Configuration = Map[String, String]
+private[hudi] trait HudiMetadataOperation extends MetadataOperation {
 
   /**
-   * Returns the same data type but set all nullability fields are true (ArrayType.containsNull,
-   * and MapType.valueContainsNull)
-   * @param dataType
-   *   the data type
-   * @return
-   *   same data type set to null
+   * Update Qbeast Metadata
+   * @param schema
+   *   the schema of the table
+   * @param isOverwriteMode
+   *   whether the write mode is overwritten
+   * @param configuration
+   *   the changes in the table
+   * @param hasRevisionUpdate
+   *   the Qbeast options to update
    */
-  protected def asNullable(dataType: DataType): DataType = {
-    dataType match {
-      case array: ArrayType => array.copy(containsNull = true)
-      case map: MapType => map.copy(valueContainsNull = true)
-      case other => other
-    }
-  }
+  def updateTableMetadata(
+      metaClient: HoodieTableMetaClient,
+      schema: StructType,
+      isOverwriteMode: Boolean,
+      configuration: Configuration,
+      hasRevisionUpdate: Boolean): Unit = {
 
-  protected def overwriteQbeastConfiguration(baseConfiguration: Configuration): Configuration = {
-    val revisionKeys = baseConfiguration.keys.filter(_.startsWith(MetadataConfig.revision))
-    val other = baseConfiguration.keys.filter(_ == MetadataConfig.lastRevisionID)
-    val qbeastKeys = revisionKeys ++ other
-    baseConfiguration -- qbeastKeys
-  }
+    // TODO: Check if this needs to handle schema evolution like Delta
 
-  /**
-   * Update metadata with new Qbeast Revision
-   * @param baseConfiguration
-   *   the base configuration
-   * @param newRevision
-   *   the new revision
-   */
-  protected def updateQbeastRevision(
-      baseConfiguration: Configuration,
-      newRevision: Revision): Configuration = {
-    val newRevisionID = newRevision.revisionID
+    if (!hasRevisionUpdate)
+      return
 
-    // Add staging revision, if necessary. The qbeast metadata configuration
-    // should always have a revision with RevisionID = stagingID.
-    val stagingRevisionKey = s"$revision.$stagingID"
-    val addStagingRevision =
-      newRevisionID == 1 && !baseConfiguration.contains(stagingRevisionKey)
-    val configuration =
-      if (!addStagingRevision) baseConfiguration
-      else {
-        // Create staging revision with EmptyTransformers (and EmptyTransformations).
-        // We modify its timestamp to secure loadRevisionAt
-        val stagingRev =
-          stagingRevision(
-            newRevision.tableID,
-            newRevision.desiredCubeSize,
-            newRevision.columnTransformers.map(_.columnName))
-            .copy(timestamp = newRevision.timestamp - 1)
+    val tableProperties = metaClient.getTableConfig
 
-        // Add the staging revision to the revisionMap without overwriting
-        // the latestRevisionID
-        baseConfiguration
-          .updated(stagingRevisionKey, mapper.writeValueAsString(stagingRev))
-      }
+    val configJson = mapper.writeValueAsString(configuration)
+    tableProperties.setValue(MetadataConfig.configuration, configJson)
 
-    // Update latest revision id and add new revision to metadata
-    configuration
-      .updated(s"$revision.$newRevisionID", mapper.writeValueAsString(newRevision))
+    val metaPathDir =
+      new StoragePath(metaClient.getBasePathV2, HoodieTableMetaClient.METAFOLDER_NAME)
+
+    HoodieTableConfig.create(metaClient.getStorage, metaPathDir, tableProperties.getProps())
   }
 
 }

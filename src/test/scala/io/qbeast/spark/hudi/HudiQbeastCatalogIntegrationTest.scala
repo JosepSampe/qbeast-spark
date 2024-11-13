@@ -442,7 +442,7 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
       Thread.sleep(2000)
       val data2 = createTestData(spark)
       data2.write
-        .format("hudi")
+        .format("qbeast")
         .mode("append")
         .save(basePath)
     }
