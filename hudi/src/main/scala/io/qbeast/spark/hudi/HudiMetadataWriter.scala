@@ -89,7 +89,6 @@ private[hudi] case class HudiMetadataWriter(
   // private def isOverwriteMode: Boolean = mode == SaveMode.Overwrite
 
   private val spark = SparkSession.active
-  private val jsonFactory = new JsonFactory()
 
   private val basePath = tableID.id
   private val logPath = new Path(basePath, ".hoodie")
@@ -234,52 +233,24 @@ private[hudi] case class HudiMetadataWriter(
     val (tableChanges, indexFiles, deleteFiles) = writer(instantTime)
     val totalWriteTime = currTimer.endTimer()
 
-    // Update Qbeast Metadata (replicated set, revision..)
     val qbeastFiles =
-      updateMetadata(tableChanges, indexFiles, deleteFiles, qbeastOptions.extraOptions)
-
-    val partitionMetadata =
-      new HoodiePartitionMetadata(
-        metaClient.getStorage,
+      updateMetadata(
         instantTime,
-        metaClient.getBasePathV2,
-        metaClient.getBasePathV2,
-        Option.empty())
-    partitionMetadata.trySave()
+        tableChanges,
+        indexFiles,
+        deleteFiles,
+        qbeastOptions.extraOptions)
 
     val qbeastMetadata: mutable.Map[String, Map[String, Object]] = mutable.Map()
     val writeStatusList = ListBuffer[WriteStatus]()
-
-    indexFiles.foreach(indexFile => {
-      val writeStatus = new WriteStatus()
-      writeStatus.setFileId(FSUtils.getFileId(indexFile.path))
-      writeStatus.setPartitionPath("")
-      writeStatus.setTotalRecords(indexFile.elementCount)
-
-      val stat = new HoodieWriteStat()
-      stat.setPartitionPath(writeStatus.getPartitionPath)
-      stat.setNumWrites(writeStatus.getTotalRecords)
-      stat.setNumDeletes(0)
-      stat.setNumInserts(writeStatus.getTotalRecords)
-      stat.setPrevCommit(HoodieWriteStat.NULL_COMMIT)
-      stat.setFileId(writeStatus.getFileId)
-      stat.setPath(indexFile.path)
-      stat.setTotalWriteBytes(indexFile.size)
-      stat.setFileSizeInBytes(indexFile.size)
-      stat.setTotalWriteErrors(writeStatus.getTotalErrorRecords)
-
-      val runtimeStats = new HoodieWriteStat.RuntimeStats
-      runtimeStats.setTotalCreateTime(totalWriteTime)
-      stat.setRuntimeStats(runtimeStats)
-
-      writeStatus.setStat(stat)
+    indexFiles.foreach { indexFile =>
+      val writeStatus = HudiQbeastFileUtils.toWriteStat(indexFile, totalWriteTime)
       writeStatusList += writeStatus
-
       val metadata = Map(
         TagUtils.revision -> indexFile.revisionId.toString,
-        TagUtils.blocks -> mapper.readTree(encodeBlocks(indexFile.blocks)))
+        TagUtils.blocks -> mapper.readTree(HudiQbeastFileUtils.encodeBlocks(indexFile.blocks)))
       qbeastMetadata += (indexFile.path -> metadata)
-    })
+    }
 
     val tags = runPreCommitHooks(qbeastFiles)
 
@@ -319,28 +290,10 @@ private[hudi] case class HudiMetadataWriter(
       schema,
       isOverwriteOperation,
       updatedConfig,
-      hasRevisionUpdate = true)
+      hasRevisionUpdate = true // Force update the metadata
+    )
 
     hudiClient.commit(instantTime, jsc.emptyRDD)
-  }
-
-  private def encodeBlocks(blocks: IISeq[Block]): String = {
-    val writer = new StringWriter()
-    val generator = jsonFactory.createGenerator(writer)
-    generator.writeStartArray()
-    blocks.foreach { block =>
-      generator.writeStartObject()
-      generator.writeStringField("cubeId", block.cubeId.string)
-      generator.writeNumberField("minWeight", block.minWeight.value)
-      generator.writeNumberField("maxWeight", block.maxWeight.value)
-      generator.writeNumberField("elementCount", block.elementCount)
-      generator.writeBooleanField("replicated", block.replicated)
-      generator.writeEndObject()
-    }
-    generator.writeEndArray()
-    generator.close()
-    writer.close()
-    writer.toString
   }
 
   /**
@@ -358,10 +311,21 @@ private[hudi] case class HudiMetadataWriter(
    *   the sequence of file actions to save in the commit log(add, remove...)
    */
   protected def updateMetadata(
+      instantTime: String,
       tableChanges: TableChanges,
       indexFiles: Seq[IndexFile],
       deleteFiles: Seq[DeleteFile],
       extraConfiguration: Configuration): Seq[QbeastFile] = {
+
+    // TODO: Put partitionMetadata logic into isNewTable
+    val partitionMetadata =
+      new HoodiePartitionMetadata(
+        metaClient.getStorage,
+        instantTime,
+        metaClient.getBasePathV2,
+        metaClient.getBasePathV2,
+        Option.empty())
+    partitionMetadata.trySave()
 
     if (isNewTable) {
       val fs = FileSystem.get(spark.sessionState.newHadoopConf)
@@ -375,6 +339,7 @@ private[hudi] case class HudiMetadataWriter(
       }
     }
 
+    // Update the qbeast configuration with new metadata if needed
     val (newConfiguration, hasRevisionUpdate) = updateConfiguration(
       getCurrentConfig,
       isNewTable,
@@ -382,6 +347,7 @@ private[hudi] case class HudiMetadataWriter(
       tableChanges,
       qbeastOptions)
 
+    // Write the qbeast configuration to the table properties metadata
     updateTableMetadata(
       metaClient,
       schema,

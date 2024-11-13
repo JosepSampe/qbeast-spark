@@ -15,21 +15,27 @@
  */
 package io.qbeast.spark.hudi
 
+import com.fasterxml.jackson.core.JsonFactory
 import com.fasterxml.jackson.core.JsonParseException
 import com.fasterxml.jackson.databind.JsonNode
 import io.qbeast.core.model._
 import io.qbeast.core.model.IndexFileBuilder.BlockBuilder
 import io.qbeast.spark.utils.MetadataConfig
+import io.qbeast.IISeq
+import org.apache.hudi.client.WriteStatus
 import org.apache.hudi.common.fs.FSUtils
 import org.apache.hudi.common.model.HoodieCommitMetadata
 import org.apache.hudi.common.model.HoodieWriteStat
 
+import java.io.StringWriter
 import scala.collection.JavaConverters._
 
 /**
  * Utility object for working with Hudi commit metadata to create IndexFile instances.
  */
 object HudiQbeastFileUtils {
+
+  private val jsonFactory = new JsonFactory()
 
   /**
    * Creates a list of IndexFile instances from HoodieCommitMetadata.
@@ -92,6 +98,70 @@ object HudiQbeastFileUtils {
     }
 
     builder.result()
+  }
+
+  /**
+   * Converts a single IndexFile instance to a WriteStatus.
+   *
+   * @param indexFile
+   *   The IndexFile instance
+   * @param totalWriteTime
+   *   Total time taken for the write operation (for RuntimeStats)
+   * @return
+   *   A WriteStatus object populated with data from the IndexFile
+   */
+  def toWriteStat(indexFile: IndexFile, totalWriteTime: Long): WriteStatus = {
+    val writeStatus = new WriteStatus()
+    writeStatus.setFileId(FSUtils.getFileId(indexFile.path))
+    writeStatus.setPartitionPath("")
+    writeStatus.setTotalRecords(indexFile.elementCount)
+
+    val stat = new HoodieWriteStat()
+    stat.setPartitionPath(writeStatus.getPartitionPath)
+    stat.setNumWrites(writeStatus.getTotalRecords)
+    stat.setNumDeletes(0)
+    stat.setNumInserts(writeStatus.getTotalRecords)
+    stat.setPrevCommit(HoodieWriteStat.NULL_COMMIT)
+    stat.setFileId(writeStatus.getFileId)
+    stat.setPath(indexFile.path)
+    stat.setTotalWriteBytes(indexFile.size)
+    stat.setFileSizeInBytes(indexFile.size)
+    stat.setTotalWriteErrors(writeStatus.getTotalErrorRecords)
+
+    val runtimeStats = new HoodieWriteStat.RuntimeStats
+    runtimeStats.setTotalCreateTime(totalWriteTime)
+    stat.setRuntimeStats(runtimeStats)
+
+    writeStatus.setStat(stat)
+
+    writeStatus
+  }
+
+  /**
+   * Encodes the list of blocks into a JSON string.
+   *
+   * @param blocks
+   *   The list of blocks to encode
+   * @return
+   *   JSON string representation of the blocks
+   */
+  def encodeBlocks(blocks: IISeq[Block]): String = {
+    val writer = new StringWriter()
+    val generator = jsonFactory.createGenerator(writer)
+    generator.writeStartArray()
+    blocks.foreach { block =>
+      generator.writeStartObject()
+      generator.writeStringField("cubeId", block.cubeId.string)
+      generator.writeNumberField("minWeight", block.minWeight.value)
+      generator.writeNumberField("maxWeight", block.maxWeight.value)
+      generator.writeNumberField("elementCount", block.elementCount)
+      generator.writeBooleanField("replicated", block.replicated)
+      generator.writeEndObject()
+    }
+    generator.writeEndArray()
+    generator.close()
+    writer.close()
+    writer.toString
   }
 
   private def decodeBlocks(
