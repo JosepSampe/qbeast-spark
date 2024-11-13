@@ -129,8 +129,6 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
     .set("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
     .set("spark.kryo.registrator", "org.apache.spark.HoodieSparkKryoRegistrar")
     .set("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.hudi.catalog.HoodieCatalog")
-    .set("hoodie.metadata.enable", "true")
-    .set("hoodie.file.index.enable", "true")
     .set("spark.qbeast.tableFormat", "hudi")
     .set("spark.qbeast.index.defaultCubeSize", "100")
 
@@ -429,21 +427,28 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
 
       val data = createTestData(spark)
 
+      val hudiOptions = Map(
+        "hoodie.table.name" -> tableName,
+        "hoodie.metadata.enable" -> "true",
+        "hoodie.file.index.enable" -> "true",
+        // "hoodie.metadata.index.bloom.filter.enable" -> "true",
+        // "hoodie.metadata.record.index.enable" -> "true"
+        "hoodie.metadata.index.column.stats.enable" -> "true")
+
       data.write
-        .format("qbeast")
-        .option("hoodie.table.name", tableName)
+        .format("hudi")
+        .mode("overwrite")
+        .options(hudiOptions)
         .option("columnsToIndex", "id")
-        .option("hoodie.metadata.enable", "true")
-        .option("hoodie.metadata.index.column.stats.enable", "true")
-        // .option("hoodie.metadata.index.bloom.filter.enable", "true")
-        // .option("hoodie.metadata.record.index.enable", "true")
         .save(basePath)
 
       Thread.sleep(2000)
       val data2 = createTestData(spark)
       data2.write
-        .format("qbeast")
+        .format("hudi")
         .mode("append")
+        .options(hudiOptions)
+        .option("columnsToIndex", "id")
         .save(basePath)
     }
 
@@ -458,14 +463,14 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
       metadataDF.show(numRows = 100, truncate = false)
 
       spark.read
-        .format("qbeast")
+        .format("hudi")
         .load(basePath)
         .sample(0.1)
         .show(numRows = 10, truncate = false)
 
       println(
         spark.read
-          .format("qbeast")
+          .format("hudi")
           .load(basePath)
           .count())
 

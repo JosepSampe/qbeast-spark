@@ -129,10 +129,6 @@ private[hudi] case class HudiMetadataWriter(
     val statsTrackers = createStatsTrackers()
     registerStatsTrackers(statsTrackers)
 
-    val conf = Map(
-      "hoodie.metadata.enable" -> "true",
-      "hoodie.metadata.index.column.stats.enable" -> "true")
-
     // If tableName is provided, we need to add catalog props
     //    val tableName = scala.Option("hudi_table")
     //    val catalogProps = tableName match {
@@ -146,7 +142,7 @@ private[hudi] case class HudiMetadataWriter(
     val finalParameters = HoodieWriterUtils.parametersWithWriteDefaults(
       metaClient.getTableConfig.getProps.asScala.toMap ++
         spark.sqlContext.getAllConfs.filterKeys(isHoodieConfigKey) ++
-        conf)
+        qbeastOptions.extraOptions)
 
     DataSourceUtils.createHoodieClient(
       jsc,
@@ -239,7 +235,7 @@ private[hudi] case class HudiMetadataWriter(
     val totalWriteTime = currTimer.endTimer()
 
     // Update Qbeast Metadata (replicated set, revision..)
-    var qbeastFiles =
+    val qbeastFiles =
       updateMetadata(tableChanges, indexFiles, deleteFiles, qbeastOptions.extraOptions)
 
     val partitionMetadata =
@@ -284,7 +280,10 @@ private[hudi] case class HudiMetadataWriter(
         TagUtils.blocks -> mapper.readTree(encodeBlocks(indexFile.blocks)))
       qbeastMetadata += (indexFile.path -> metadata)
     })
-    // extraMeta.put(MetadataConfig.revision, tableChanges.updatedRevision.revisionID.toString)
+
+    val tags = runPreCommitHooks(qbeastFiles)
+
+    extraMeta.put(MetadataConfig.tags, mapper.writeValueAsString(tags))
     extraMeta.put(MetadataConfig.blocks, mapper.writeValueAsString(qbeastMetadata))
 
     val writeStatusRdd = jsc.parallelize(writeStatusList)
@@ -364,7 +363,10 @@ private[hudi] case class HudiMetadataWriter(
       deleteFiles: Seq[DeleteFile],
       extraConfiguration: Configuration): Seq[QbeastFile] = {
 
-    if (!isNewTable) {
+    if (isNewTable) {
+      val fs = FileSystem.get(spark.sessionState.newHadoopConf)
+      fs.mkdirs(logPath)
+    } else {
       // This table already exists, check if the insert is valid.
       if (mode == SaveMode.ErrorIfExists) {
         throw AnalysisExceptionFactory.create(s"Path '${tableID.id}' already exists.'")
@@ -386,11 +388,6 @@ private[hudi] case class HudiMetadataWriter(
       isOverwriteOperation,
       newConfiguration,
       hasRevisionUpdate)
-
-    if (isNewTable) {
-      val fs = FileSystem.get(spark.sessionState.newHadoopConf)
-      fs.mkdirs(logPath)
-    }
 
     val deletedFiles = mode match {
       case SaveMode.Overwrite =>
