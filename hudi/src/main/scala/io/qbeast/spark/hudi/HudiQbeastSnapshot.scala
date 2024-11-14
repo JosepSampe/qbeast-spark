@@ -35,6 +35,12 @@ case class HudiQbeastSnapshot(tableID: QTableID) extends QbeastSnapshot {
 
   private val jsc = new JavaSparkContext(spark.sparkContext)
 
+  private val metaClient: HoodieTableMetaClient = HoodieTableMetaClient
+    .builder()
+    .setConf(HadoopFSUtils.getStorageConfWithCopy(jsc.hadoopConfiguration()))
+    .setBasePath(tableID.id)
+    .build()
+
   /**
    * The current state of the snapshot.
    *
@@ -47,10 +53,11 @@ case class HudiQbeastSnapshot(tableID: QTableID) extends QbeastSnapshot {
   }
 
   override lazy val schema: StructType = {
-    println(metadataMap)
-    val jsonSchema = metadataMap(HoodieCommitMetadata.SCHEMA_KEY)
-    val avroSchema = new Schema.Parser().parse(jsonSchema)
-    SchemaConverters.toSqlType(avroSchema).dataType.asInstanceOf[StructType]
+    if (metadataMap.contains(HoodieCommitMetadata.SCHEMA_KEY)) {
+      val jsonSchema = metadataMap(HoodieCommitMetadata.SCHEMA_KEY)
+      val avroSchema = new Schema.Parser().parse(jsonSchema)
+      SchemaConverters.toSqlType(avroSchema).dataType.asInstanceOf[StructType]
+    } else StructType.apply(Nil)
   }
 
   override lazy val allFilesCount: Long = {
@@ -68,7 +75,7 @@ case class HudiQbeastSnapshot(tableID: QTableID) extends QbeastSnapshot {
   }
 
   private val metadataMap: Map[String, String] = {
-    val metaClient = loadMetaClient()
+    println("---- metadataMap")
     val timeline = metaClient.getActiveTimeline.getCommitTimeline.filterCompletedInstants
     val lastInstant = timeline.filterCompletedInstants.lastInstant()
     val commitMetadataMap: Map[String, String] =
@@ -99,7 +106,7 @@ case class HudiQbeastSnapshot(tableID: QTableID) extends QbeastSnapshot {
 
   override def loadProperties: Map[String, String] = {
     // Check if it is required to load more props from metadataMap
-    loadMetaClient().getTableConfig.getProps.asScala.toMap
+    metaClient.getTableConfig.getProps.asScala.toMap
   }
 
   override def loadDescription: String = s"Hudi table snapshot at ${tableID.id}"
@@ -113,17 +120,8 @@ case class HudiQbeastSnapshot(tableID: QTableID) extends QbeastSnapshot {
     }
   }
 
-  private def loadMetaClient(): HoodieTableMetaClient = {
-    println(tableID.id)
-    HoodieTableMetaClient
-      .builder()
-      .setConf(HadoopFSUtils.getStorageConfWithCopy(jsc.hadoopConfiguration()))
-      .setBasePath(tableID.id)
-      .build()
-  }
-
   private def loadTimeline(): HoodieTimeline = {
-    loadMetaClient().getActiveTimeline.getCommitTimeline.filterCompletedInstants
+    metaClient.getActiveTimeline.getCommitTimeline.filterCompletedInstants
   }
 
   private val lastRevisionID: RevisionID =
@@ -150,7 +148,6 @@ case class HudiQbeastSnapshot(tableID: QTableID) extends QbeastSnapshot {
     val dimensionCount = loadRevision(revisionID).transformations.size
     val indexFilesBuffer = ListBuffer[IndexFile]()
 
-    val metaClient = loadMetaClient()
     val timeline: HoodieTimeline =
       metaClient.getActiveTimeline.getCommitTimeline.filterCompletedInstants
 
@@ -220,7 +217,7 @@ case class HudiQbeastSnapshot(tableID: QTableID) extends QbeastSnapshot {
     val sparkSession = SparkSession.active
     HoodieFileIndex(
       sparkSession,
-      loadMetaClient(),
+      metaClient,
       Some(schema),
       Map("path" -> tableID.id),
       FileStatusCache.getOrCreate(sparkSession))

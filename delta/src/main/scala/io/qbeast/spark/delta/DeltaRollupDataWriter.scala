@@ -22,7 +22,6 @@ import io.qbeast.spark.writer.StatsTracker
 import io.qbeast.spark.writer.TaskStats
 import io.qbeast.IISeq
 import org.apache.hadoop.fs.Path
-import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.delta.actions.AddFile
 import org.apache.spark.sql.delta.stats.DeltaFileStatistics
 import org.apache.spark.sql.delta.stats.DeltaJobStatisticsTracker
