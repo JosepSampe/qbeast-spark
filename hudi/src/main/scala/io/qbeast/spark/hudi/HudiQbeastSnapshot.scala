@@ -47,6 +47,7 @@ case class HudiQbeastSnapshot(tableID: QTableID) extends QbeastSnapshot {
   }
 
   override lazy val schema: StructType = {
+    println(metadataMap)
     val jsonSchema = metadataMap(HoodieCommitMetadata.SCHEMA_KEY)
     val avroSchema = new Schema.Parser().parse(jsonSchema)
     SchemaConverters.toSqlType(avroSchema).dataType.asInstanceOf[StructType]
@@ -113,6 +114,7 @@ case class HudiQbeastSnapshot(tableID: QTableID) extends QbeastSnapshot {
   }
 
   private def loadMetaClient(): HoodieTableMetaClient = {
+    println(tableID.id)
     HoodieTableMetaClient
       .builder()
       .setConf(HadoopFSUtils.getStorageConfWithCopy(jsc.hadoopConfiguration()))

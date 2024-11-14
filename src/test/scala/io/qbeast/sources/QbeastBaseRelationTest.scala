@@ -64,15 +64,21 @@ class QbeastBaseRelationTest extends QbeastIntegrationTestSpec {
       "CREATE TABLE student (id INT, name STRING, age INT) USING qbeast " +
         "OPTIONS ('columnsToIndex'='id')")
 
+    println(tmpDir)
+    println("+++")
+
     val indexedTable = QbeastContext.indexedTableFactory.getIndexedTable(QTableID(tmpDir))
     val qbeastBaseRelation =
       QbeastBaseRelation.forQbeastTableWithOptions(indexedTable, Map("columnsToIndex" -> "id"))
+
+    println("+---++")
 
     // Insert new data
     val df =
       1.to(10).map(i => Student(i, i.toString, Random.nextInt())).toDF("id", "name", "age")
 
     qbeastBaseRelation.asInstanceOf[InsertableRelation].insert(df, overwrite = false)
+    println("++++----999")
 
     val indexed = spark.read.format("qbeast").load(tmpDir)
     indexed.count() shouldBe df.count()

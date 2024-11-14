@@ -56,6 +56,8 @@ object QbeastBaseRelation {
 
     val spark = SparkSession.active
     val snapshot = QbeastContext.metadataManager.loadSnapshot(table.tableID)
+    println(snapshot.basePath)
+    println(snapshot.schema)
     if (snapshot.isInitial) {
       // If the Table is initial, read empty relation
       // This could happen if we CREATE/REPLACE TABLE without inserting data
