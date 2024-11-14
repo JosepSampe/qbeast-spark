@@ -62,22 +62,19 @@ case class HudiQbeastSnapshot(tableID: QTableID) extends QbeastSnapshot {
 
   override lazy val allFilesCount: Long = {
     val timeline = loadTimeline()
-    val lastInstant = timeline.filterCompletedInstants.lastInstant()
-    if (lastInstant.isPresent) {
-      val commitMetadataBytes = timeline.getInstantDetails(lastInstant.get()).get()
+    val completedInstants = timeline.getInstants.iterator().asScala
+    val tablePath = new StoragePath(tableID.id)
+    completedInstants.foldLeft(0L) { (totalFilesCount, instant) =>
+      val commitMetadataBytes = timeline.getInstantDetails(instant).get()
       val commitMetadata =
         HoodieCommitMetadata.fromBytes(commitMetadataBytes, classOf[HoodieCommitMetadata])
-      val basePath = new StoragePath(tableID.id)
-      commitMetadata.getFileIdAndFullPaths(basePath).keySet().size()
-    } else {
-      0
+      totalFilesCount + commitMetadata.getFileIdAndFullPaths(tablePath).keySet().size()
     }
   }
 
   private val metadataMap: Map[String, String] = {
-    println("---- metadataMap")
-    val timeline = metaClient.getActiveTimeline.getCommitTimeline.filterCompletedInstants
-    val lastInstant = timeline.filterCompletedInstants.lastInstant()
+    val timeline = loadTimeline()
+    val lastInstant = timeline.lastInstant()
     val commitMetadataMap: Map[String, String] =
       if (lastInstant.isPresent) {
         val commitMetadataBytes = timeline.getInstantDetails(lastInstant.get()).get()
@@ -148,16 +145,19 @@ case class HudiQbeastSnapshot(tableID: QTableID) extends QbeastSnapshot {
     val dimensionCount = loadRevision(revisionID).transformations.size
     val indexFilesBuffer = ListBuffer[IndexFile]()
 
-    val timeline: HoodieTimeline =
-      metaClient.getActiveTimeline.getCommitTimeline.filterCompletedInstants
+    val timeline: HoodieTimeline = loadTimeline()
+    val completedInstants = timeline.getInstants.iterator().asScala
 
-    timeline.getInstants.iterator().asScala.foreach { instant =>
+    completedInstants.foreach { instant =>
       val commitMetadataBytes = metaClient.getActiveTimeline
         .getInstantDetails(instant)
         .get()
       val commitMetadata =
         HoodieCommitMetadata.fromBytes(commitMetadataBytes, classOf[HoodieCommitMetadata])
-      val indexFiles = HudiQbeastFileUtils.fromCommitFile(dimensionCount)(commitMetadata)
+      val indexFiles = HudiQbeastFileUtils
+        .fromCommitFile(dimensionCount)(commitMetadata)
+        .filter(_.revisionId == revisionID)
+
       indexFilesBuffer ++= indexFiles
     }
 
@@ -182,7 +182,8 @@ case class HudiQbeastSnapshot(tableID: QTableID) extends QbeastSnapshot {
 
   override def loadDataframeFromIndexFiles(indexFile: Dataset[IndexFile]): DataFrame = {
     import indexFile.sparkSession.implicits._
-    val paths = indexFile.map(file => new Path(tableID.id, file.path).toString).collect()
+    val rootPath = tableID.id
+    val paths = indexFile.map(ifile => new Path(rootPath, ifile.path).toString).collect()
     indexFile.sparkSession.read
       .schema(schema)
       .load(paths: _*)

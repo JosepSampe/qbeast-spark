@@ -15,6 +15,7 @@
  */
 package io.qbeast.spark.hudi
 
+import io.qbeast.table.QbeastTable
 import io.qbeast.QbeastIntegrationTestSpec
 import org.apache.avro.generic.GenericData
 import org.apache.avro.Schema
@@ -477,6 +478,45 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
           .format(tableFormat)
           .load(basePath)
           .count())
+
+    }
+
+  it should
+    "optimize qbeast table" in withExtendedSparkAndTmpDir(hudiSparkConf) { (spark, tmpDir) =>
+      val tableName: String = "hudi_table_optimize"
+      val currentPath = Paths.get("").toAbsolutePath.toString
+      val basePath = s"$currentPath/spark-warehouse/$tableName"
+
+      removeDirectory(basePath)
+
+      val data = createTestData(spark)
+
+      val hudiOptions = Map(
+        "hoodie.table.name" -> tableName,
+        "hoodie.metadata.enable" -> "true",
+        "hoodie.file.index.enable" -> "true",
+        "hoodie.metadata.index.column.stats.enable" -> "true")
+
+      val tableFormat = "qbeast"
+
+      data.write
+        .format(tableFormat)
+        .mode("overwrite")
+        .options(hudiOptions)
+        .option("columnsToIndex", "id")
+        .save(basePath)
+
+      val data2 = createTestData(spark)
+      data2.write
+        .format(tableFormat)
+        .mode("append")
+        .options(hudiOptions)
+        .option("columnsToIndex", "id")
+        .save(basePath)
+
+      val qbeastTable = QbeastTable.forPath(spark, basePath)
+      println(qbeastTable.getIndexMetrics)
+      qbeastTable.optimize()
 
     }
 

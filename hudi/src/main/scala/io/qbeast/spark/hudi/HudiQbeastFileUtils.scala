@@ -21,6 +21,7 @@ import com.fasterxml.jackson.databind.JsonNode
 import io.qbeast.core.model._
 import io.qbeast.core.model.IndexFileBuilder.BlockBuilder
 import io.qbeast.spark.utils.MetadataConfig
+import io.qbeast.spark.utils.TagUtils
 import io.qbeast.IISeq
 import org.apache.hudi.client.WriteStatus
 import org.apache.hudi.common.fs.FSUtils
@@ -84,14 +85,10 @@ object HudiQbeastFileUtils {
       .setDataChange(dataChange)
       .setModificationTime(modificationTime)
 
-    extraMetadata.get(MetadataConfig.revision) match {
-      case Some(value) => builder.setRevisionId(value.toLong)
-      case None =>
-    }
-
     extraMetadata.get(MetadataConfig.blocks) match {
       case Some(value) =>
         val blocks = mapper.readTree(value).get(path)
+        builder.setRevisionId(blocks.get(TagUtils.revision).asLong())
         decodeBlocks(blocks, dimensionCount, builder)
       case None =>
         builder.beginBlock().setCubeId(CubeId.root(dimensionCount)).endBlock()
@@ -169,7 +166,7 @@ object HudiQbeastFileUtils {
       dimensionCount: Int,
       builder: IndexFileBuilder): Unit = {
 
-    val blocksArray = blocksNode.get("blocks")
+    val blocksArray = blocksNode.get(TagUtils.blocks)
     if (blocksArray == null || !blocksArray.isArray) {
       throw new IllegalArgumentException("Expected 'blocks' array in JSON node")
     }
