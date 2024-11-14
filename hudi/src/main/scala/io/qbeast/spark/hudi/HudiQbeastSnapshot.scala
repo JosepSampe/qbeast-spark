@@ -82,8 +82,7 @@ case class HudiQbeastSnapshot(tableID: QTableID) extends QbeastSnapshot {
       } else {
         Map.empty[String, String]
       }
-    val tablePropsMap: Map[String, String] =
-      metaClient.getTableConfig.getProps.asScala.toMap
+    val tablePropsMap: Map[String, String] = loadProperties
     val configuration = {
       if (tablePropsMap.contains(MetadataConfig.configuration))
         mapper
@@ -99,10 +98,8 @@ case class HudiQbeastSnapshot(tableID: QTableID) extends QbeastSnapshot {
     configuration ++ commitMetadataMap
   }
 
-  override def loadProperties: Map[String, String] = {
-    // Check if it is required to load more props from metadataMap
+  override def loadProperties: Map[String, String] =
     metaClient.getTableConfig.getProps.asScala.toMap
-  }
 
   override def loadDescription: String = s"Hudi table snapshot at ${tableID.id}"
 
