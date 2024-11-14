@@ -37,6 +37,8 @@ import java.nio.file.Paths
  */
 object HudiMetadataManager extends MetadataManager {
 
+  private val jsc = new JavaSparkContext(SparkSession.active.sparkContext)
+
   override def updateWithTransaction(
       tableID: QTableID,
       schema: StructType,
@@ -86,7 +88,6 @@ object HudiMetadataManager extends MetadataManager {
    * @return
    */
   private def loadMetaClient(tableID: QTableID): HoodieTableMetaClient = {
-    val jsc = new JavaSparkContext(SparkSession.active.sparkContext)
     HoodieTableMetaClient
       .builder()
       .setConf(HadoopFSUtils.getStorageConfWithCopy(jsc.hadoopConfiguration()))

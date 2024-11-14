@@ -35,7 +35,9 @@ import org.apache.spark.SparkConf
 import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.should.Matchers
 
+import java.io.File
 import java.nio.file.Files
+import scala.reflect.io.Directory
 
 /**
  * This class contains all function that you should use to test qbeast over spark. You can use it
@@ -134,9 +136,7 @@ trait QbeastIntegrationTestSpec extends AnyFlatSpec with Matchers with DatasetCo
     try {
       testCode(directory.toString)
     } finally {
-      import scala.reflect.io.Directory
-      val d = new Directory(directory.toFile)
-      // d.deleteRecursively()
+      // removeDirectory(directory.toString)
     }
   }
 
@@ -213,6 +213,14 @@ trait QbeastIntegrationTestSpec extends AnyFlatSpec with Matchers with DatasetCo
   def getQbeastSnapshot(dir: String): QbeastSnapshot = {
     val tableId = new QTableID(dir)
     QbeastContext.metadataManager.loadSnapshot(tableId)
+  }
+
+  def removeDirectory(directoryPath: String): Unit = {
+    val directory = new File(directoryPath)
+    if (directory.exists() && directory.isDirectory) {
+      val d = new Directory(directory)
+      d.deleteRecursively()
+    }
   }
 
 }

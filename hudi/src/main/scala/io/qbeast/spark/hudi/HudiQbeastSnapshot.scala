@@ -46,11 +46,7 @@ case class HudiQbeastSnapshot(tableID: QTableID) extends QbeastSnapshot {
    *
    * @return
    */
-  override def isInitial: Boolean = {
-    val timeline = loadTimeline()
-    val lastInstantOption = if (timeline.empty) None else Some(timeline.lastInstant.get)
-    lastInstantOption.isEmpty
-  }
+  override def isInitial: Boolean = loadTimeline().empty()
 
   override lazy val schema: StructType = {
     if (metadataMap.contains(HoodieCommitMetadata.SCHEMA_KEY)) {
@@ -80,7 +76,9 @@ case class HudiQbeastSnapshot(tableID: QTableID) extends QbeastSnapshot {
         val commitMetadataBytes = timeline.getInstantDetails(lastInstant.get()).get()
         val commitMetadata =
           HoodieCommitMetadata.fromBytes(commitMetadataBytes, classOf[HoodieCommitMetadata])
-        commitMetadata.getExtraMetadata.asScala.toMap
+        commitMetadata.getExtraMetadata.asScala.toMap.filterNot { case (key, _) =>
+          key.startsWith("qbeast")
+        }
       } else {
         Map.empty[String, String]
       }

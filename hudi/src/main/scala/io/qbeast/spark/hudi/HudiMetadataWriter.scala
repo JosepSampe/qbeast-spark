@@ -15,7 +15,6 @@
  */
 package io.qbeast.spark.hudi
 
-import com.fasterxml.jackson.core.JsonFactory
 import io.qbeast.core.model._
 import io.qbeast.core.model.PreCommitHook.PreCommitHookOutput
 import io.qbeast.spark.internal.QbeastOptions
@@ -23,14 +22,12 @@ import io.qbeast.spark.utils.MetadataConfig
 import io.qbeast.spark.utils.TagUtils
 import io.qbeast.spark.writer.StatsTracker.registerStatsTrackers
 import io.qbeast.IISeq
-import org.apache.hadoop.fs.FileSystem
-import org.apache.hadoop.fs.Path
+import org.apache.hudi.client.common.HoodieSparkEngineContext
 import org.apache.hudi.client.SparkRDDWriteClient
 import org.apache.hudi.client.WriteStatus
-import org.apache.hudi.common.fs.FSUtils
+import org.apache.hudi.common.config.HoodieMetadataConfig
 import org.apache.hudi.common.model.HoodieCommitMetadata
 import org.apache.hudi.common.model.HoodiePartitionMetadata
-import org.apache.hudi.common.model.HoodieWriteStat
 import org.apache.hudi.common.model.WriteOperationType
 import org.apache.hudi.common.table.timeline.HoodieActiveTimeline
 import org.apache.hudi.common.table.timeline.HoodieInstant
@@ -40,6 +37,9 @@ import org.apache.hudi.common.util.CommitUtils
 import org.apache.hudi.common.util.HoodieTimer
 import org.apache.hudi.common.util.Option
 import org.apache.hudi.common.util.StringUtils.getUTF8Bytes
+import org.apache.hudi.metadata.HoodieBackedTableMetadata
+import org.apache.hudi.metadata.HoodieTableMetadata
+import org.apache.hudi.storage.StoragePath
 import org.apache.hudi.table.HoodieSparkTable
 import org.apache.hudi.DataSourceUtils
 import org.apache.hudi.HoodieWriterUtils
@@ -55,7 +55,6 @@ import org.apache.spark.sql.SaveMode
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.util.SerializableConfiguration
 
-import java.io.StringWriter
 import java.lang.System.currentTimeMillis
 import java.util
 import scala.collection.mutable
@@ -91,21 +90,20 @@ private[hudi] case class HudiMetadataWriter(
   private val spark = SparkSession.active
 
   private val basePath = tableID.id
-  private val logPath = new Path(basePath, ".hoodie")
+
   private val jsc = new JavaSparkContext(spark.sparkContext)
 
-  private val isNewTable: Boolean = {
-    val fs = FileSystem.get(spark.sparkContext.hadoopConfiguration)
-    !fs.exists(logPath)
-  }
+  private val isNewTable = metaClient.getActiveTimeline.getCommitTimeline.empty()
 
   private def isOverwriteOperation: Boolean = mode == SaveMode.Overwrite
 
-//  private val writeConfig = HoodieWriteConfig
-//    .newBuilder()
-//    .withPath(metaClient.getBasePathV2.toString)
-//    .forTable(metaClient.getTableConfig.getTableName)
-//    .build()
+  private val tableMetadata: HoodieTableMetadata =
+    new HoodieBackedTableMetadata(
+      new HoodieSparkEngineContext(jsc),
+      metaClient.getStorage,
+      HoodieMetadataConfig.newBuilder().enable(true).build(),
+      tableID.id,
+      false)
 
   /**
    * Creates an instance of basic stats tracker on the desired transaction
@@ -317,20 +315,23 @@ private[hudi] case class HudiMetadataWriter(
       deleteFiles: Seq[DeleteFile],
       extraConfiguration: Configuration): Seq[QbeastFile] = {
 
-    // TODO: Put partitionMetadata logic into isNewTable
-    val partitionMetadata =
-      new HoodiePartitionMetadata(
-        metaClient.getStorage,
-        instantTime,
-        metaClient.getBasePathV2,
-        metaClient.getBasePathV2,
-        Option.empty())
-    partitionMetadata.trySave()
+    val isNewTable = metaClient.getActiveTimeline.getCommitTimeline.empty()
 
-    if (isNewTable) {
-      val fs = FileSystem.get(spark.sessionState.newHadoopConf)
-      fs.mkdirs(logPath)
-    } else {
+    val hasPartitionMetadata = HoodiePartitionMetadata.hasPartitionMetadata(
+      metaClient.getStorage,
+      metaClient.getBasePathV2)
+    if (!hasPartitionMetadata) {
+      val partitionMetadata =
+        new HoodiePartitionMetadata(
+          metaClient.getStorage,
+          instantTime,
+          metaClient.getBasePathV2,
+          metaClient.getBasePathV2,
+          Option.empty())
+      partitionMetadata.trySave()
+    }
+
+    if (!isNewTable) {
       // This table already exists, check if the insert is valid.
       if (mode == SaveMode.ErrorIfExists) {
         throw AnalysisExceptionFactory.create(s"Path '${tableID.id}' already exists.'")
@@ -357,7 +358,7 @@ private[hudi] case class HudiMetadataWriter(
 
     val deletedFiles = mode match {
       case SaveMode.Overwrite =>
-        indexFiles.map { indexFile =>
+        getAllFiles.map { indexFile =>
           DeleteFile(
             path = indexFile.path,
             size = indexFile.size,
@@ -381,6 +382,20 @@ private[hudi] case class HudiMetadataWriter(
         .toMap
     else
       Map.empty[String, String]
+  }
+
+  private def getAllFiles: IISeq[IndexFile] = {
+    val tablePath = new StoragePath(tableID.id)
+    val allFilesM = tableMetadata.getAllFilesInPartition(tablePath).asScala
+    allFilesM
+      .map(fileStatus =>
+        new IndexFileBuilder()
+          .setPath(fileStatus.getPath.toString)
+          .setSize(fileStatus.getLength)
+          .setDataChange(false)
+          .setModificationTime(fileStatus.getModificationTime)
+          .result())
+      .toIndexedSeq
   }
 
 }

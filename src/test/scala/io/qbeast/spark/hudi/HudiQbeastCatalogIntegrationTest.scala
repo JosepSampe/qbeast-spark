@@ -106,18 +106,6 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
     StudentGenerator.students.toDF()
   }
 
-  def removeDirectory(directoryPath: String): Unit = {
-    val directory = new File(directoryPath)
-
-    if (directory.exists() && directory.isDirectory) {
-      val d = new Directory(directory)
-      d.deleteRecursively()
-      println(s"Deleted directory: $directoryPath")
-    } else {
-      println(s"Directory does not exist: $directoryPath")
-    }
-  }
-
   def createHoodieRecordsFromDataFrame(
       df: DataFrame,
       schema: Schema): JavaRDD[HoodieRecord[HoodieAvroPayload]] = {

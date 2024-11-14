@@ -13,6 +13,7 @@ import org.apache.spark.sql.DataFrame
 import org.apache.spark.sql.Row
 import org.apache.spark.sql.SparkSession
 
+import java.nio.file.Paths
 import scala.util.Random
 
 class IndexedTableTest extends QbeastIntegrationTestSpec {
@@ -52,7 +53,12 @@ class IndexedTableTest extends QbeastIntegrationTestSpec {
 
   it should "overwrite with an empty dataframe" in withSparkAndTmpDir { (spark, tmpDir) =>
     {
-      val location = tmpDir + "/external_student/"
+
+      val tableName: String = "external_student"
+      val currentPath = Paths.get("").toAbsolutePath.toString
+      val location = s"$currentPath/spark-warehouse/$tableName"
+      removeDirectory(location)
+
       val qTableID = QTableID(location)
       val indexedTableFactory = QbeastContext.indexedTableFactory
       val indexedTable = indexedTableFactory.getIndexedTable(qTableID)

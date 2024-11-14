@@ -271,7 +271,7 @@ private[delta] case class DeltaMetadataWriter(
       removeFiles: Seq[RemoveFile],
       extraConfiguration: Configuration): Seq[Action] = {
 
-    val isNewTable = txn.readVersion > -1
+    val isNewTable = txn.readVersion == -1
 
     if (!isNewTable) {
       // This table already exists, check if the insert is valid.
