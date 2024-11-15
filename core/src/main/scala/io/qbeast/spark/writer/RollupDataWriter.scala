@@ -125,13 +125,18 @@ trait RollupDataWriter extends DataWriter {
     new IndexFileWriterFactory(tableId, schema, revisionId, outputFactory, trackers, config)
   }
 
-  def extendDataWithCubeToRollup(data: DataFrame, tableChanges: TableChanges): DataFrame = {
+  protected def extendDataWithCubeToRollup(
+      data: DataFrame,
+      tableChanges: TableChanges): DataFrame = {
     val rollup = computeRollup(tableChanges)
-    val cubeUUIDs = computeCubeUUIDs(rollup)
+    val cubeUUIDs = rollup.values.toSeq.distinct.map(c => c -> UUID.randomUUID().toString).toMap
+    val rollupCubeUUIDs: Map[CubeId, String] = rollup.map { case (cubeId, rollupCubeId) =>
+      cubeId -> cubeUUIDs(rollupCubeId)
+    }
+    val uuidUDF = getFileUUIDUDF(tableChanges.updatedRevision, rollupCubeUUIDs)
     data.withColumn(
       QbeastColumns.cubeToRollupColumnName,
-      getRollupCubeIdUDF(tableChanges.updatedRevision, rollup, cubeUUIDs)(
-        col(QbeastColumns.cubeColumnName)))
+      uuidUDF(col(QbeastColumns.cubeColumnName)))
   }
 
   def computeRollup(tableChanges: TableChanges): Map[CubeId, CubeId] = {
@@ -144,40 +149,22 @@ trait RollupDataWriter extends DataWriter {
     rollup.compute()
   }
 
-  private def computeCubeUUIDs(rollup: Map[CubeId, CubeId]): Map[CubeId, String] = {
-    val uuidCache = mutable.Map[CubeId, String]()
-    rollup.foreach { case (_, cubeToRollupId) =>
-      if (!uuidCache.contains(cubeToRollupId)) {
-        uuidCache(cubeToRollupId) = UUID.randomUUID().toString
-      }
-    }
-    uuidCache.toMap
-//    val sortedUUIDs = uuidCache.toSeq.sortBy(_._1)
-//    val sortedUUIDsCache = mutable.Map[CubeId, String]()
-//    sortedUUIDs.zipWithIndex.foreach { case ((cubeToRollupId, uuid), index) =>
-//      if (!sortedUUIDsCache.contains(cubeToRollupId)) {
-//        sortedUUIDsCache(cubeToRollupId) = s"${uuid}_$index"
-//      }
-//    }
-//    sortedUUIDsCache.toMap
-  }
-
-  private def getRollupCubeIdUDF(
+  private def getFileUUIDUDF(
       revision: Revision,
-      rollup: Map[CubeId, CubeId],
-      cubeUUIDs: Map[CubeId, String]): UserDefinedFunction = udf({ cubeIdBytes: Array[Byte] =>
-    val cubeId = revision.createCubeId(cubeIdBytes)
-    var rollupCubeId = rollup.get(cubeId)
-    var parentCubeId = cubeId.parent
-    while (rollupCubeId.isEmpty) {
-      parentCubeId match {
-        case Some(value) =>
-          rollupCubeId = rollup.get(value)
-          parentCubeId = value.parent
-        case None => rollupCubeId = Some(cubeId)
+      rollupCubeUUIDs: Map[CubeId, String]): UserDefinedFunction =
+    udf({ cubeIdBytes: Array[Byte] =>
+      val cubeId = revision.createCubeId(cubeIdBytes)
+      var fileUUID = rollupCubeUUIDs.get(cubeId)
+      var parentCubeId = cubeId.parent
+      while (fileUUID.isEmpty) {
+        parentCubeId match {
+          case Some(value) =>
+            fileUUID = rollupCubeUUIDs.get(value)
+            parentCubeId = value.parent
+          case None =>
+        }
       }
-    }
-    cubeUUIDs.get(rollupCubeId.get)
-  })
+      fileUUID
+    })
 
 }

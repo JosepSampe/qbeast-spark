@@ -26,6 +26,7 @@ import org.apache.hudi.client.common.HoodieSparkEngineContext
 import org.apache.hudi.client.SparkRDDWriteClient
 import org.apache.hudi.client.WriteStatus
 import org.apache.hudi.common.config.HoodieMetadataConfig
+import org.apache.hudi.common.model.ActionType
 import org.apache.hudi.common.model.HoodieCommitMetadata
 import org.apache.hudi.common.model.HoodiePartitionMetadata
 import org.apache.hudi.common.model.WriteOperationType
@@ -92,8 +93,6 @@ private[hudi] case class HudiMetadataWriter(
   private val basePath = tableID.id
 
   private val jsc = new JavaSparkContext(spark.sparkContext)
-
-  private val isNewTable = metaClient.getActiveTimeline.getCommitTimeline.empty()
 
   private def isOverwriteOperation: Boolean = mode == SaveMode.Overwrite
 
@@ -207,9 +206,14 @@ private[hudi] case class HudiMetadataWriter(
   def writeWithTransaction(
       writer: String => (TableChanges, Seq[IndexFile], Seq[DeleteFile])): Unit = {
 
+    val isNewTable = metaClient.getActiveTimeline.getCommitTimeline.empty()
+
     val hudiClient = createHoodieClient()
 
-    val operationType = WriteOperationType.BULK_INSERT
+    val operationType =
+      if (isOverwriteOperation && !isNewTable) WriteOperationType.INSERT_OVERWRITE
+      else WriteOperationType.BULK_INSERT
+
     val commitActionType = CommitUtils.getCommitActionType(operationType, metaClient.getTableType)
 
     val instantTime = HoodieActiveTimeline.createNewInstantTime
@@ -233,6 +237,7 @@ private[hudi] case class HudiMetadataWriter(
 
     val qbeastFiles =
       updateMetadata(
+        isNewTable,
         instantTime,
         tableChanges,
         indexFiles,
@@ -256,7 +261,17 @@ private[hudi] case class HudiMetadataWriter(
     extraMeta.put(MetadataConfig.blocks, mapper.writeValueAsString(qbeastMetadata))
 
     val writeStatusRdd = jsc.parallelize(writeStatusList)
-    hudiClient.commit(instantTime, writeStatusRdd, Option.of(extraMeta))
+
+    if (commitActionType == ActionType.replacecommit.toString) {
+      hudiClient.commit(
+        instantTime,
+        writeStatusRdd,
+        Option.of(extraMeta),
+        commitActionType,
+        getReplacedFileIdsForPartition(hoodieTable, basePath))
+    } else {
+      hudiClient.commit(instantTime, writeStatusRdd, Option.of(extraMeta))
+    }
 
   }
 
@@ -309,13 +324,12 @@ private[hudi] case class HudiMetadataWriter(
    *   the sequence of file actions to save in the commit log(add, remove...)
    */
   protected def updateMetadata(
+      isNewTable: Boolean,
       instantTime: String,
       tableChanges: TableChanges,
       indexFiles: Seq[IndexFile],
       deleteFiles: Seq[DeleteFile],
       extraConfiguration: Configuration): Seq[QbeastFile] = {
-
-    val isNewTable = metaClient.getActiveTimeline.getCommitTimeline.empty()
 
     val hasPartitionMetadata = HoodiePartitionMetadata.hasPartitionMetadata(
       metaClient.getStorage,
@@ -357,8 +371,8 @@ private[hudi] case class HudiMetadataWriter(
       hasRevisionUpdate)
 
     val deletedFiles = mode match {
-      case SaveMode.Overwrite =>
-        getAllFiles.map { indexFile =>
+      case SaveMode.Overwrite if !isNewTable =>
+        getAllIndexFiles.map { indexFile =>
           DeleteFile(
             path = indexFile.path,
             size = indexFile.size,
@@ -384,7 +398,7 @@ private[hudi] case class HudiMetadataWriter(
       Map.empty[String, String]
   }
 
-  private def getAllFiles: IISeq[IndexFile] = {
+  private def getAllIndexFiles: IISeq[IndexFile] = {
     val tablePath = new StoragePath(tableID.id)
     val allFilesM = tableMetadata.getAllFilesInPartition(tablePath).asScala
     allFilesM
@@ -396,6 +410,21 @@ private[hudi] case class HudiMetadataWriter(
           .setModificationTime(fileStatus.getModificationTime)
           .result())
       .toIndexedSeq
+  }
+
+  private def getReplacedFileIdsForPartition(
+      hoodieTable: HoodieSparkTable[_],
+      partitionPath: String): java.util.Map[String, java.util.List[String]] = {
+    val existingFileIds = hoodieTable.getSliceView
+      .getLatestFileSlices(partitionPath)
+      .distinct
+      .collect(java.util.stream.Collectors.toList())
+      .asScala
+      .map(_.getFileId)
+      .toList
+      .asJava
+
+    Map(partitionPath -> existingFileIds).asJava
   }
 
 }
