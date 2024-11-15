@@ -450,6 +450,13 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
         .options(hudiOptions)
         .option("columnsToIndex", "id")
         .save(basePath)
+
+      println(
+        spark.read
+          .format(tableFormat)
+          .load(basePath)
+          .count())
+
     }
 
   it should
