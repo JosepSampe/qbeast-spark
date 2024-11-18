@@ -47,8 +47,8 @@ object HudiMetadataManager extends MetadataManager {
       writer: String => (TableChanges, IISeq[IndexFile], IISeq[DeleteFile])): Unit = {
 
     val metaClient = loadMetaClient(tableID)
-
     val metadataWriter = HudiMetadataWriter(tableID, mode, metaClient, options, schema)
+
     metadataWriter.writeWithTransaction(writer)
   }
 

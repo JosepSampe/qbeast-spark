@@ -36,8 +36,8 @@ object DeltaMetadataManager extends MetadataManager {
       writer: String => (TableChanges, IISeq[IndexFile], IISeq[DeleteFile])): Unit = {
 
     val deltaLog = loadDeltaLog(tableID)
-
     val metadataWriter = DeltaMetadataWriter(tableID, mode, deltaLog, options, schema)
+
     metadataWriter.writeWithTransaction(writer)
   }
 
