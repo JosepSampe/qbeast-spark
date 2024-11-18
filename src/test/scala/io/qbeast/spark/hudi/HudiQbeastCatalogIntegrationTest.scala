@@ -51,11 +51,9 @@ import org.apache.spark.sql.Row
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.SparkConf
 
-import java.io.File
 import java.nio.file.Paths
 import java.util
 import scala.collection.JavaConverters._
-import scala.reflect.io.Directory
 import scala.util.Random
 
 object HudiUtils {
@@ -82,8 +80,9 @@ object StudentGenerator {
   private val names =
     List("Alice", "Bob", "Charlie", "David", "Eva", "Frank", "Grace", "Hannah", "Isaac", "Jack")
 
-  val students: Seq[Student] = {
-    1.to(1000).map { i =>
+  // Method to generate a configurable number of students
+  def generateStudents(count: Int): Seq[Student] = {
+    1.to(count).map { i =>
       val name = names(Random.nextInt(names.length)) // Randomly select a name from the list
       val age = Random.nextInt(30) + 18 // Random age between 18 and 47
       Student(i, name, age)
@@ -101,9 +100,9 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
       .build
   }
 
-  def createTestData(spark: SparkSession): DataFrame = {
+  def createTestData(spark: SparkSession, numerOfRows: Int): DataFrame = {
     import spark.implicits._
-    StudentGenerator.students.toDF()
+    StudentGenerator.generateStudents(numerOfRows).toDF()
   }
 
   def createHoodieRecordsFromDataFrame(
@@ -125,7 +124,7 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
 
   "Hudi Qbeast Catalog" should
     "create a table" in withExtendedSparkAndTmpDir(hudiSparkConf) { (spark, tmpDir) =>
-      val data = createTestData(spark)
+      val data = createTestData(spark, 1000)
       val tableName: String = "hudi_table"
       data.write.format("hudi").saveAsTable(tableName)
 
@@ -144,7 +143,7 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
         val directoryPath = s"spark-warehouse/$tableName"
         removeDirectory(directoryPath)
 
-        val data = createTestData(spark)
+        val data = createTestData(spark, 1000)
 
         data.write
           .format("hudi")
@@ -215,7 +214,7 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
 //      val tableName: String = "hudi_table"
 //      data.write.format("hudi").option("hoodie.table.name", tableName).save(basePath)
 
-      val data = createTestData(spark)
+      val data = createTestData(spark, 1000)
 
       data.write
         .format("hudi")
@@ -291,7 +290,7 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
         val directoryPath = s"spark-warehouse/$tableName"
         removeDirectory(directoryPath)
 
-        val data = createTestData(spark)
+        val data = createTestData(spark, 1000)
 
         data.write
           .format("hudi")
@@ -414,8 +413,6 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
 
       removeDirectory(basePath)
 
-      val data = createTestData(spark)
-
       val hudiOptions = Map(
         "hoodie.table.name" -> tableName,
         "hoodie.metadata.enable" -> "true",
@@ -426,6 +423,7 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
 
       val tableFormat = "qbeast"
 
+      val data = createTestData(spark, 1000)
       data.write
         .format(tableFormat)
         .mode("overwrite")
@@ -433,17 +431,14 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
         .option("columnsToIndex", "id")
         .save(basePath)
 
-//      Thread.sleep(2000)
-//      val data2 = createTestData(spark)
-//      data2.write
-//        .format(tableFormat)
-//        .mode("append")
-//        .options(hudiOptions)
-//        .option("columnsToIndex", "id")
-//        .save(basePath)
+      println(
+        spark.read
+          .format(tableFormat)
+          .load(basePath)
+          .count())
 
       Thread.sleep(2000)
-      val data3 = createTestData(spark)
+      val data3 = createTestData(spark, 800)
       data3.write
         .format(tableFormat)
         .mode("overwrite")
@@ -456,6 +451,42 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
           .format(tableFormat)
           .load(basePath)
           .count())
+
+      Thread.sleep(2000)
+      val data2 = createTestData(spark, 300)
+      data2.write
+        .format(tableFormat)
+        .mode("append")
+        .options(hudiOptions)
+        .option("columnsToIndex", "id")
+        .save(basePath)
+
+      println(
+        spark.read
+          .format(tableFormat)
+          .load(basePath)
+          .count())
+
+//      Thread.sleep(2000)
+//      val data4 = createTestData(spark, 200)
+//      data4.write
+//        .format(tableFormat)
+//        .mode("overwrite")
+//        .options(hudiOptions)
+//        .option("columnsToIndex", "id")
+//        .save(basePath)
+
+      println(
+        spark.read
+          .format("hudi")
+          .load(basePath)
+          .count())
+
+      spark.read
+        .format(tableFormat)
+        .load(basePath)
+        .sample(0.1)
+        .show(numRows = 10, truncate = false)
 
     }
 
@@ -493,7 +524,7 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
 
       removeDirectory(basePath)
 
-      val data = createTestData(spark)
+      val data = createTestData(spark, 1000)
 
       val hudiOptions = Map(
         "hoodie.table.name" -> tableName,
@@ -510,7 +541,7 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
         .option("columnsToIndex", "id")
         .save(basePath)
 
-      val data2 = createTestData(spark)
+      val data2 = createTestData(spark, 1000)
       data2.write
         .format(tableFormat)
         .mode("append")
@@ -521,6 +552,50 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
       val qbeastTable = QbeastTable.forPath(spark, basePath)
       println(qbeastTable.getIndexMetrics)
       qbeastTable.optimize()
+
+    }
+
+  it should
+    "cluster hudi table" in withExtendedSparkAndTmpDir(hudiSparkConf) { (spark, tmpDir) =>
+      val tableName: String = "hudi_table_cluster"
+      val currentPath = Paths.get("").toAbsolutePath.toString
+      val basePath = s"$currentPath/spark-warehouse/$tableName"
+
+      removeDirectory(basePath)
+
+      val data = createTestData(spark, 1000)
+      data.write
+        .format("hudi")
+        .option("hoodie.clustering.inline.max.commits", "2")
+        .option("hoodie.clustering.inline", "true")
+        .option(HoodieWriteConfig.TBL_NAME.key, tableName)
+        .mode("overwrite")
+        .save(basePath)
+
+      val newData = createTestData(spark, 1000)
+      newData.write
+        .format("hudi")
+        .option("hoodie.clustering.inline.max.commits", "2")
+        .option("hoodie.clustering.inline", "true")
+        .option(HoodieWriteConfig.TBL_NAME.key, tableName)
+        .mode("append")
+        .save(basePath)
+
+      spark.read
+        .format("hudi")
+        .load(basePath)
+        .sample(0.1)
+        .show(numRows = 10, truncate = false)
+
+      val metadataDF = spark.read.format("hudi").load(s"$basePath/.hoodie/metadata")
+      metadataDF.printSchema()
+      metadataDF.show(numRows = 1000, truncate = false)
+
+      println(
+        spark.read
+          .format("hudi")
+          .load(basePath)
+          .count())
 
     }
 

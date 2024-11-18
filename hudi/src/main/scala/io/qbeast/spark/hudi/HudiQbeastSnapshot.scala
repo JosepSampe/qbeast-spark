@@ -6,8 +6,9 @@ import io.qbeast.spark.utils.MetadataConfig
 import io.qbeast.IISeq
 import org.apache.avro.Schema
 import org.apache.hadoop.fs.Path
+import org.apache.hudi.client.common.HoodieSparkEngineContext
+import org.apache.hudi.common.fs.FSUtils
 import org.apache.hudi.common.model.HoodieCommitMetadata
-import org.apache.hudi.common.table.timeline.HoodieTimeline
 import org.apache.hudi.common.table.HoodieTableMetaClient
 import org.apache.hudi.hadoop.fs.HadoopFSUtils
 import org.apache.hudi.storage.StoragePath
@@ -46,7 +47,8 @@ case class HudiQbeastSnapshot(tableID: QTableID) extends QbeastSnapshot {
    *
    * @return
    */
-  override def isInitial: Boolean = loadTimeline().empty()
+  override def isInitial: Boolean =
+    metaClient.getCommitsTimeline.filterCompletedInstants.countInstants() == 0
 
   override lazy val schema: StructType = {
     if (metadataMap.contains(HoodieCommitMetadata.SCHEMA_KEY)) {
@@ -57,8 +59,8 @@ case class HudiQbeastSnapshot(tableID: QTableID) extends QbeastSnapshot {
   }
 
   override lazy val allFilesCount: Long = {
-    val timeline = loadTimeline()
-    val completedInstants = timeline.getInstants.iterator().asScala
+    val timeline = metaClient.getActiveTimeline.getAllCommitsTimeline
+    val completedInstants = timeline.filterCompletedInstants.getInstants.iterator().asScala
     val tablePath = new StoragePath(tableID.id)
     completedInstants.foldLeft(0L) { (totalFilesCount, instant) =>
       val commitMetadataBytes = timeline.getInstantDetails(instant).get()
@@ -69,13 +71,10 @@ case class HudiQbeastSnapshot(tableID: QTableID) extends QbeastSnapshot {
   }
 
   private val metadataMap: Map[String, String] = {
-    val timeline = loadTimeline()
-    val lastInstant = timeline.lastInstant()
+    val lastCommitMetadata = metaClient.getActiveTimeline.getLastCommitMetadataWithValidSchema
     val commitMetadataMap: Map[String, String] =
-      if (lastInstant.isPresent) {
-        val commitMetadataBytes = timeline.getInstantDetails(lastInstant.get()).get()
-        val commitMetadata =
-          HoodieCommitMetadata.fromBytes(commitMetadataBytes, classOf[HoodieCommitMetadata])
+      if (lastCommitMetadata.isPresent) {
+        val commitMetadata = lastCommitMetadata.get().getValue
         commitMetadata.getExtraMetadata.asScala.toMap.filterNot { case (key, _) =>
           key.startsWith("qbeast")
         }
@@ -112,10 +111,6 @@ case class HudiQbeastSnapshot(tableID: QTableID) extends QbeastSnapshot {
     }
   }
 
-  private def loadTimeline(): HoodieTimeline = {
-    metaClient.getActiveTimeline.getCommitTimeline.filterCompletedInstants
-  }
-
   private val lastRevisionID: RevisionID =
     metadataMap.getOrElse(MetadataConfig.lastRevisionID, "-1").toLong
 
@@ -140,21 +135,28 @@ case class HudiQbeastSnapshot(tableID: QTableID) extends QbeastSnapshot {
     val dimensionCount = loadRevision(revisionID).transformations.size
     val indexFilesBuffer = ListBuffer[IndexFile]()
 
-    val timeline: HoodieTimeline = loadTimeline()
-    val completedInstants = timeline.getInstants.iterator().asScala
+    // Get the valid commits from the latest snapshot using the index
+    val commitTimes = loadFileIndex().inputFiles.map { filePath =>
+      val fileName = new StoragePath(filePath).getName
+      FSUtils.getCommitTime(fileName)
+    }.distinct
 
-    completedInstants.foreach { instant =>
-      val commitMetadataBytes = metaClient.getActiveTimeline
-        .getInstantDetails(instant)
-        .get()
-      val commitMetadata =
-        HoodieCommitMetadata.fromBytes(commitMetadataBytes, classOf[HoodieCommitMetadata])
-      val indexFiles = HudiQbeastFileUtils
-        .fromCommitFile(dimensionCount)(commitMetadata)
-        .filter(_.revisionId == revisionID)
+    val timeline = metaClient.getActiveTimeline.getAllCommitsTimeline
+    val completedInstants = timeline.filterCompletedInstants.getInstants.iterator().asScala
+    completedInstants
+      .filter(instant => commitTimes.contains(instant.getTimestamp))
+      .foreach { instant =>
+        val commitMetadataBytes = metaClient.getActiveTimeline
+          .getInstantDetails(instant)
+          .get()
+        val commitMetadata =
+          HoodieCommitMetadata.fromBytes(commitMetadataBytes, classOf[HoodieCommitMetadata])
+        val indexFiles = HudiQbeastFileUtils
+          .fromCommitFile(dimensionCount)(commitMetadata)
+          .filter(_.revisionId == revisionID)
 
-      indexFilesBuffer ++= indexFiles
-    }
+        indexFilesBuffer ++= indexFiles
+      }
 
     import spark.implicits._
     val indexFilesDataset: Dataset[IndexFile] = spark.createDataset(indexFilesBuffer.toList)

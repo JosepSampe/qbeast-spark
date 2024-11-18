@@ -424,7 +424,7 @@ private[hudi] case class HudiMetadataWriter(
       .toList
       .asJava
 
-    Map(partitionPath -> existingFileIds).asJava
+    Map("" -> existingFileIds).asJava
   }
 
 }
