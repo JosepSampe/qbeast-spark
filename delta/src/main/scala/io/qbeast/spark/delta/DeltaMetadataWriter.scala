@@ -63,7 +63,7 @@ import scala.collection.mutable.ListBuffer
  */
 private[delta] case class DeltaMetadataWriter(
     tableID: QTableID,
-    mode: SaveMode,
+    mode: String,
     deltaLog: DeltaLog,
     qbeastOptions: QbeastOptions,
     schema: StructType)
@@ -76,7 +76,7 @@ private[delta] case class DeltaMetadataWriter(
     new DeltaOptions(optionsMap, SparkSession.active.sessionState.conf)
   }
 
-  private def isOverwriteOperation: Boolean = mode == SaveMode.Overwrite
+  private def isOverwriteOperation: Boolean = mode == SaveMode.Overwrite.toString
 
   override protected val canMergeSchema: Boolean = deltaOptions.canMergeSchema
 
@@ -196,8 +196,13 @@ private[delta] case class DeltaMetadataWriter(
       val tags = runPreCommitHooks(qbeastActions)
 
       // Commit the information to the DeltaLog
+      val saveMode = if (isOverwriteOperation) SaveMode.Overwrite else SaveMode.Append
       val op =
-        DeltaOperations.Write(mode, None, deltaOptions.replaceWhere, deltaOptions.userMetadata)
+        DeltaOperations.Write(
+          saveMode,
+          None,
+          deltaOptions.replaceWhere,
+          deltaOptions.userMetadata)
       txn.commit(actions = actions, op = op, tags = tags)
     }
   }
@@ -273,16 +278,8 @@ private[delta] case class DeltaMetadataWriter(
 
     val isNewTable = txn.readVersion == -1
 
-    if (!isNewTable) {
-      // This table already exists, check if the insert is valid.
-      if (mode == SaveMode.ErrorIfExists) {
-        throw AnalysisExceptionFactory.create(s"Path '${deltaLog.dataPath}' already exists.'")
-      } else if (mode == SaveMode.Ignore) {
-        return Nil
-      } else if (mode == SaveMode.Overwrite) {
-        DeltaLog.assertRemovable(txn.snapshot)
-      }
-    }
+    if (!isNewTable && isOverwriteOperation) DeltaLog.assertRemovable(txn.snapshot)
+
     val rearrangeOnly = deltaOptions.rearrangeOnly
 
     val isOptimizeOperation: Boolean = tableChanges.isOptimizeOperation
@@ -307,11 +304,9 @@ private[delta] case class DeltaMetadataWriter(
 
     if (isNewTable) deltaLog.createLogDirectory()
 
-    val deletedFiles = mode match {
-      case SaveMode.Overwrite =>
-        txn.filterFiles().map(_.remove)
-      case _ => removeFiles
-    }
+    val deletedFiles = if (isOverwriteOperation && !isNewTable) {
+      txn.filterFiles().map(_.remove)
+    } else removeFiles
 
     val allFileActions = if (rearrangeOnly) {
       addFiles.map(_.copy(dataChange = !rearrangeOnly)) ++

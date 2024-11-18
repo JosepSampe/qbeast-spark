@@ -32,15 +32,12 @@ object DeltaMetadataManager extends MetadataManager {
       tableID: QTableID,
       schema: StructType,
       options: QbeastOptions,
-      append: Boolean)(
+      mode: String)(
       writer: String => (TableChanges, IISeq[IndexFile], IISeq[DeleteFile])): Unit = {
 
     val deltaLog = loadDeltaLog(tableID)
-    val mode = if (append) SaveMode.Append else SaveMode.Overwrite
 
-    val metadataWriter =
-      DeltaMetadataWriter(tableID, mode, deltaLog, options, schema)
-
+    val metadataWriter = DeltaMetadataWriter(tableID, mode, deltaLog, options, schema)
     metadataWriter.writeWithTransaction(writer)
   }
 
@@ -48,7 +45,12 @@ object DeltaMetadataManager extends MetadataManager {
       update: => Configuration): Unit = {
     val deltaLog = loadDeltaLog(tableID)
     val metadataWriter =
-      DeltaMetadataWriter(tableID, mode = SaveMode.Append, deltaLog, QbeastOptions.empty, schema)
+      DeltaMetadataWriter(
+        tableID,
+        SaveMode.Append.toString,
+        deltaLog,
+        QbeastOptions.empty,
+        schema)
 
     metadataWriter.updateMetadataWithTransaction(update)
 

@@ -34,6 +34,7 @@ import org.apache.spark.sql.sources.BaseRelation
 import org.apache.spark.sql.AnalysisExceptionFactory
 import org.apache.spark.sql.DataFrame
 import org.apache.spark.sql.Dataset
+import org.apache.spark.sql.SaveMode
 import org.apache.spark.sql.SparkSession
 
 import java.lang.System.currentTimeMillis
@@ -474,6 +475,9 @@ private[table] class IndexedTableImpl(
       append: Boolean): Unit = {
     logTrace(s"Begin: Writing data to table $tableID")
     val stagingDataManager: StagingDataManager = stagingDataManagerFactory.getManager(tableID)
+
+    val mode = if (append) SaveMode.Append.toString else SaveMode.Overwrite.toString
+
     stagingDataManager.updateWithStagedData(data) match {
       case r: StagingResolution if r.sendToStaging =>
         stagingDataManager.stageData(data, indexStatus, options, append)
@@ -487,7 +491,7 @@ private[table] class IndexedTableImpl(
       case StagingResolution(dataToWrite, removeFiles, false) =>
         val schema = dataToWrite.schema
         val deleteFiles = removeFiles.toIndexedSeq
-        metadataManager.updateWithTransaction(tableID, schema, options, append) {
+        metadataManager.updateWithTransaction(tableID, schema, options, mode) {
           commitTime: String =>
             val (qbeastData, tableChanges) = indexManager.index(dataToWrite, indexStatus)
             val addFiles = dataWriter.write(tableID, schema, qbeastData, tableChanges, commitTime)
@@ -531,6 +535,7 @@ private[table] class IndexedTableImpl(
   override def optimize(files: Seq[String], options: Map[String, String]): Unit = {
     val paths = files.toSet
     val schema = metadataManager.loadCurrentSchema(tableID)
+    val mode = "Optimize"
     snapshot.loadAllRevisions.foreach { revision =>
       val indexFiles = snapshot
         .loadIndexFiles(revision.revisionID)
@@ -541,7 +546,7 @@ private[table] class IndexedTableImpl(
           tableID,
           schema,
           optimizationOptions(options),
-          append = true) { commitTime: String =>
+          mode) { commitTime: String =>
           import indexFiles.sparkSession.implicits._
           val deleteFiles: IISeq[DeleteFile] = indexFiles
             .map { indexFile =>

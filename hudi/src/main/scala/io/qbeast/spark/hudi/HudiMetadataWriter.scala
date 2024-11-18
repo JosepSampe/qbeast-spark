@@ -26,6 +26,7 @@ import org.apache.hudi.client.common.HoodieSparkEngineContext
 import org.apache.hudi.client.SparkRDDWriteClient
 import org.apache.hudi.client.WriteStatus
 import org.apache.hudi.common.config.HoodieMetadataConfig
+import org.apache.hudi.common.fs.FSUtils
 import org.apache.hudi.common.model.ActionType
 import org.apache.hudi.common.model.HoodieCommitMetadata
 import org.apache.hudi.common.model.HoodiePartitionMetadata
@@ -79,14 +80,12 @@ import scala.collection.JavaConverters._
  */
 private[hudi] case class HudiMetadataWriter(
     tableID: QTableID,
-    mode: SaveMode,
+    mode: String,
     metaClient: HoodieTableMetaClient,
     qbeastOptions: QbeastOptions,
     schema: StructType)
     extends HudiMetadataOperation
     with Logging {
-
-  // private def isOverwriteMode: Boolean = mode == SaveMode.Overwrite
 
   private val spark = SparkSession.active
 
@@ -94,7 +93,9 @@ private[hudi] case class HudiMetadataWriter(
 
   private val jsc = new JavaSparkContext(spark.sparkContext)
 
-  private def isOverwriteOperation: Boolean = mode == SaveMode.Overwrite
+  private def isOverwriteOperation = mode == SaveMode.Overwrite.toString
+
+  private def isOptimizeOperation = mode == "Optimize"
 
   private val tableMetadata: HoodieTableMetadata =
     new HoodieBackedTableMetadata(
@@ -206,12 +207,13 @@ private[hudi] case class HudiMetadataWriter(
   def writeWithTransaction(
       writer: String => (TableChanges, Seq[IndexFile], Seq[DeleteFile])): Unit = {
 
-    val isNewTable = metaClient.getActiveTimeline.getCommitTimeline.empty()
+    val isNewTable = metaClient.getCommitsTimeline.filterCompletedInstants.countInstants() == 0
 
     val hudiClient = createHoodieClient()
 
     val operationType =
-      if (isOverwriteOperation && !isNewTable) WriteOperationType.INSERT_OVERWRITE
+      if (isOptimizeOperation || (isOverwriteOperation && !isNewTable))
+        WriteOperationType.INSERT_OVERWRITE
       else WriteOperationType.BULK_INSERT
 
     val commitActionType = CommitUtils.getCommitActionType(operationType, metaClient.getTableType)
@@ -263,12 +265,17 @@ private[hudi] case class HudiMetadataWriter(
     val writeStatusRdd = jsc.parallelize(writeStatusList)
 
     if (commitActionType == ActionType.replacecommit.toString) {
+      val replacedFileIds = if (isOptimizeOperation) {
+        getReplacedFileIdsForOptimize(deleteFiles)
+      } else {
+        getReplacedFileIdsForPartition(hoodieTable, basePath)
+      }
       hudiClient.commit(
         instantTime,
         writeStatusRdd,
         Option.of(extraMeta),
         commitActionType,
-        getReplacedFileIdsForPartition(hoodieTable, basePath))
+        replacedFileIds)
     } else {
       hudiClient.commit(instantTime, writeStatusRdd, Option.of(extraMeta))
     }
@@ -345,15 +352,6 @@ private[hudi] case class HudiMetadataWriter(
       partitionMetadata.trySave()
     }
 
-    if (!isNewTable) {
-      // This table already exists, check if the insert is valid.
-      if (mode == SaveMode.ErrorIfExists) {
-        throw AnalysisExceptionFactory.create(s"Path '${tableID.id}' already exists.'")
-      } else if (mode == SaveMode.Ignore) {
-        return Nil
-      }
-    }
-
     // Update the qbeast configuration with new metadata if needed
     val (newConfiguration, hasRevisionUpdate) = updateConfiguration(
       getCurrentConfig,
@@ -370,17 +368,15 @@ private[hudi] case class HudiMetadataWriter(
       newConfiguration,
       hasRevisionUpdate)
 
-    val deletedFiles = mode match {
-      case SaveMode.Overwrite if !isNewTable =>
-        getAllIndexFiles.map { indexFile =>
-          DeleteFile(
-            path = indexFile.path,
-            size = indexFile.size,
-            dataChange = false,
-            deletionTimestamp = currentTimeMillis())
-        }.toIndexedSeq
-      case _ => deleteFiles
-    }
+    val deletedFiles = if (isOverwriteOperation && !isNewTable) {
+      getAllIndexFiles.map { indexFile =>
+        DeleteFile(
+          path = indexFile.path,
+          size = indexFile.size,
+          dataChange = false,
+          deletionTimestamp = currentTimeMillis())
+      }.toIndexedSeq
+    } else deleteFiles
 
     indexFiles ++ deletedFiles
   }
@@ -404,7 +400,7 @@ private[hudi] case class HudiMetadataWriter(
     allFilesM
       .map(fileStatus =>
         new IndexFileBuilder()
-          .setPath(fileStatus.getPath.toString)
+          .setPath(fileStatus.getPath.getName)
           .setSize(fileStatus.getLength)
           .setDataChange(false)
           .setModificationTime(fileStatus.getModificationTime)
@@ -425,6 +421,14 @@ private[hudi] case class HudiMetadataWriter(
       .asJava
 
     Map("" -> existingFileIds).asJava
+  }
+
+  private def getReplacedFileIdsForOptimize(
+      deleteFiles: Seq[DeleteFile]): java.util.Map[String, java.util.List[String]] = {
+
+    val fileUUIDs = deleteFiles.map(deleteFile => FSUtils.getFileId(deleteFile.path))
+
+    Map("" -> fileUUIDs.asJava).asJava
   }
 
 }

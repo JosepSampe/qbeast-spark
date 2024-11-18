@@ -43,15 +43,12 @@ object HudiMetadataManager extends MetadataManager {
       tableID: QTableID,
       schema: StructType,
       options: QbeastOptions,
-      append: Boolean)(
+      mode: String)(
       writer: String => (TableChanges, IISeq[IndexFile], IISeq[DeleteFile])): Unit = {
-
-    val mode = if (append) SaveMode.Append else SaveMode.Overwrite
 
     val metaClient = loadMetaClient(tableID)
 
     val metadataWriter = HudiMetadataWriter(tableID, mode, metaClient, options, schema)
-
     metadataWriter.writeWithTransaction(writer)
   }
 
@@ -60,7 +57,12 @@ object HudiMetadataManager extends MetadataManager {
 
     val metaClient = loadMetaClient(tableID)
     val metadataWriter =
-      HudiMetadataWriter(tableID, mode = SaveMode.Append, metaClient, QbeastOptions.empty, schema)
+      HudiMetadataWriter(
+        tableID,
+        SaveMode.Append.toString,
+        metaClient,
+        QbeastOptions.empty,
+        schema)
 
     metadataWriter.updateMetadataWithTransaction(update)
 
