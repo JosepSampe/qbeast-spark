@@ -32,7 +32,6 @@ import org.apache.spark.sql.connector.catalog.TableChange.RemoveProperty
 import org.apache.spark.sql.connector.catalog.TableChange.SetProperty
 import org.apache.spark.sql.connector.expressions.Transform
 import org.apache.spark.sql.delta.catalog.DeltaCatalog
-import org.apache.spark.sql.hudi.catalog.HoodieCatalog
 import org.apache.spark.sql.types.StructType
 import org.apache.spark.sql.util.CaseInsensitiveStringMap
 import org.apache.spark.sql.SparkCatalogUtils
@@ -55,7 +54,7 @@ class QbeastCatalog[T <: TableCatalog with SupportsNamespaces with FunctionCatal
 
   private val tableFactory = QbeastContext.indexedTableFactory
 
-  private val deltaCatalog: HoodieCatalog = new HoodieCatalog()
+  private val deltaCatalog: DeltaCatalog = new DeltaCatalog()
 
   private var delegatedCatalog: CatalogPlugin = null
 

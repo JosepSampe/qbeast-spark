@@ -1,8 +1,7 @@
-package io.qbeast.spark.table
+package io.qbeast.table
 
 import io.qbeast.context.QbeastContext
 import io.qbeast.core.model.QTableID
-import io.qbeast.table.QbeastTable
 import io.qbeast.QbeastIntegrationTestSpec
 import io.qbeast.TestClasses.Student
 import org.apache.spark.sql.types.IntegerType
@@ -13,7 +12,6 @@ import org.apache.spark.sql.DataFrame
 import org.apache.spark.sql.Row
 import org.apache.spark.sql.SparkSession
 
-import java.nio.file.Paths
 import scala.util.Random
 
 class IndexedTableTest extends QbeastIntegrationTestSpec {
@@ -53,12 +51,7 @@ class IndexedTableTest extends QbeastIntegrationTestSpec {
 
   it should "overwrite with an empty dataframe" in withSparkAndTmpDir { (spark, tmpDir) =>
     {
-
-      val tableName: String = "external_student"
-      val currentPath = Paths.get("").toAbsolutePath.toString
-      val location = s"$currentPath/spark-warehouse/$tableName"
-      removeDirectory(location)
-
+      val location = tmpDir + "/external_student/"
       val qTableID = QTableID(location)
       val indexedTableFactory = QbeastContext.indexedTableFactory
       val indexedTable = indexedTableFactory.getIndexedTable(qTableID)
