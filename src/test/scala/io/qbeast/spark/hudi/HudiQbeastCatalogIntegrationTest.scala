@@ -572,6 +572,12 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
           .load(basePath)
           .count())
 
+      spark.read
+        .format("qbeast")
+        .load(basePath)
+        .sample(0.1)
+        .show(numRows = 10, truncate = false)
+
     }
 
   it should
