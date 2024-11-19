@@ -20,7 +20,6 @@ import io.qbeast.internal.commands.AlterTableSetPropertiesQbeastCommand
 import io.qbeast.internal.commands.AlterTableUnsetPropertiesQbeastCommand
 import io.qbeast.sources.v2.QbeastStagedTableImpl
 import io.qbeast.sources.v2.QbeastTableImpl
-import io.qbeast.spark.internal.sources.catalog.QbeastCatalogUtils
 import org.apache.hadoop.fs.Path
 import org.apache.spark.sql.catalyst.analysis.NoSuchDatabaseException
 import org.apache.spark.sql.catalyst.analysis.NoSuchNamespaceException
@@ -31,7 +30,7 @@ import org.apache.spark.sql.connector.catalog.functions.UnboundFunction
 import org.apache.spark.sql.connector.catalog.TableChange.RemoveProperty
 import org.apache.spark.sql.connector.catalog.TableChange.SetProperty
 import org.apache.spark.sql.connector.expressions.Transform
-import org.apache.spark.sql.delta.catalog.DeltaCatalog
+import org.apache.spark.sql.hudi.catalog.HoodieCatalog
 import org.apache.spark.sql.types.StructType
 import org.apache.spark.sql.util.CaseInsensitiveStringMap
 import org.apache.spark.sql.SparkCatalogUtils
@@ -54,7 +53,7 @@ class QbeastCatalog[T <: TableCatalog with SupportsNamespaces with FunctionCatal
 
   private val tableFactory = QbeastContext.indexedTableFactory
 
-  private val deltaCatalog: DeltaCatalog = new DeltaCatalog()
+  private val deltaCatalog: HoodieCatalog = new HoodieCatalog()
 
   private var delegatedCatalog: CatalogPlugin = null
 

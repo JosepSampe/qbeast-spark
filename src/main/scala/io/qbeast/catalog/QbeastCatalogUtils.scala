@@ -13,10 +13,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.qbeast.spark.internal.sources.catalog
+package io.qbeast.catalog
 
-import io.qbeast.catalog.CreationMode
-import io.qbeast.catalog.TableCreationMode
+import io.qbeast.context.QbeastContext
 import io.qbeast.core.model.QTableID
 import io.qbeast.sources.v2.QbeastTableImpl
 import io.qbeast.table.IndexedTable
@@ -32,7 +31,6 @@ import org.apache.spark.sql.connector.catalog.Identifier
 import org.apache.spark.sql.connector.catalog.SparkCatalogV2Util
 import org.apache.spark.sql.connector.catalog.Table
 import org.apache.spark.sql.connector.expressions.Transform
-import org.apache.spark.sql.delta.DeltaLog
 import org.apache.spark.sql.execution.datasources.DataSource
 import org.apache.spark.sql.types.StructType
 import org.apache.spark.sql.AnalysisExceptionFactory
@@ -122,9 +120,9 @@ object QbeastCatalogUtils extends Logging {
     if (table.schema.isEmpty) {
       if (table.tableType == CatalogTableType.EXTERNAL) {
         if (fs.exists(path) && fs.listStatus(path).nonEmpty) {
-          val existingSchema =
-            DeltaLog.forTable(spark, path.toString).unsafeVolatileSnapshot.metadata.schema
-          table.copy(schema = existingSchema)
+          val tableId = new QTableID(path.toString)
+          val snapshot = QbeastContext.metadataManager.loadSnapshot(tableId)
+          table.copy(schema = snapshot.schema)
         } else {
           throw AnalysisExceptionFactory
             .create(
@@ -139,9 +137,9 @@ object QbeastCatalogUtils extends Logging {
       }
     } else {
       if (isTablePopulated) {
-        val existingSchema =
-          DeltaLog.forTable(spark, path.toString).unsafeVolatileSnapshot.metadata.schema
-        if (existingSchema != table.schema) {
+        val tableId = new QTableID(path.toString)
+        val snapshot = QbeastContext.metadataManager.loadSnapshot(tableId)
+        if (snapshot.schema != table.schema) {
           throw AnalysisExceptionFactory
             .create(
               "Trying to create a managed table with a different schema. " +

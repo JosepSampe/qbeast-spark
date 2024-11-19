@@ -28,9 +28,11 @@ class QbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec with Catalo
     "coexist with Delta table" in withTmpDir(tmpDir =>
       withExtendedSpark(sparkConf = new SparkConf()
         .setMaster("local[8]")
-        .set("spark.sql.extensions", "io.qbeast.sql.QbeastSparkSessionExtension")
+        .set("spark.sql.extensions", "io.qbeast.sql.HudiQbeastSparkSessionExtension")
         .set("spark.sql.warehouse.dir", tmpDir)
-        .set("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog")
+        .set(
+          "spark.sql.catalog.spark_catalog",
+          "org.apache.spark.sql.hudi.HoodieSparkSessionExtension")
         .set("spark.sql.catalog.qbeast_catalog", "io.qbeast.catalog.QbeastCatalog"))(spark => {
 
         val data = createTestData(spark)
@@ -176,8 +178,13 @@ class QbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec with Catalo
 
       val tmpDir = tmpWarehouse + "/test"
       val data = createTestData(spark)
-      data.write.format("qbeast").option("columnsToIndex", "id").save(tmpDir)
 
+      println(data.schema)
+      data.write.format("qbeast").option("columnsToIndex", "id").save(tmpDir)
+      val indexed1 = spark.read.format("qbeast").load(tmpDir)
+      println(indexed1.schema)
+
+      println("---------")
       spark.sql(
         "CREATE EXTERNAL TABLE student (id INT, name STRING, age INT) " +
           s"USING qbeast OPTIONS ('columnsToIndex'='id') LOCATION '$tmpDir'")
