@@ -108,21 +108,15 @@ object QbeastCatalogUtils extends Logging {
     }
   }
 
-  private def verifySchema(
-      spark: SparkSession,
-      fs: FileSystem,
-      path: Path,
-      table: CatalogTable): CatalogTable = {
+  private def verifySchema(indexedTable: IndexedTable, table: CatalogTable): CatalogTable = {
 
-    val isTablePopulated = table.tableType == CatalogTableType.EXTERNAL && fs
-      .exists(path) && fs.listStatus(path).nonEmpty
-    // Users did not specify the schema. We expect the schema exists in Delta.
+    val indexedTableExists = indexedTable.exists
+
     if (table.schema.isEmpty) {
+      // Users did not specify the schema. We expect the schema exists
       if (table.tableType == CatalogTableType.EXTERNAL) {
-        if (fs.exists(path) && fs.listStatus(path).nonEmpty) {
-          val tableId = new QTableID(path.toString)
-          val snapshot = QbeastContext.metadataManager.loadSnapshot(tableId)
-          table.copy(schema = snapshot.schema)
+        if (indexedTableExists) {
+          table.copy(schema = indexedTable.schema)
         } else {
           throw AnalysisExceptionFactory
             .create(
@@ -136,15 +130,11 @@ object QbeastCatalogUtils extends Logging {
               "Do you want to create it as EXTERNAL?")
       }
     } else {
-      if (isTablePopulated) {
-        val tableId = new QTableID(path.toString)
-        val snapshot = QbeastContext.metadataManager.loadSnapshot(tableId)
-        if (snapshot.schema != table.schema) {
-          throw AnalysisExceptionFactory
-            .create(
-              "Trying to create a managed table with a different schema. " +
-                "Do you want to want to ALTER TABLE first?")
-        }
+      if (indexedTableExists && indexedTable.schema != table.schema) {
+        throw AnalysisExceptionFactory
+          .create(
+            "Trying to create a managed table with a different schema. " +
+              "Do you want to want to ALTER TABLE first?")
       }
       table
     }
@@ -229,6 +219,7 @@ object QbeastCatalogUtils extends Logging {
       tableFactory: IndexedTableFactory,
       existingSessionCatalog: SessionCatalog): Unit = {
 
+    println("createQbeastTable")
     val spark = SparkSession.active
     val isPathTable = QbeastCatalogUtils.isPathTable(ident)
     val properties = allTableProperties.asScala.toMap
@@ -252,14 +243,6 @@ object QbeastCatalogUtils extends Logging {
       .orElse(existingTableOpt.flatMap(_.storage.locationUri))
       .getOrElse(existingSessionCatalog.defaultTablePath(id))
 
-    // Process the parameters/options/configuration sent to the table
-    val qTableID = QTableID(loc.toString)
-    val indexedTable = tableFactory.getIndexedTable(qTableID)
-    val newProperties =
-      if (!indexedTable.exists) indexedTable.selectColumnsToIndex(properties, dataFrame)
-      else properties
-    val allProperties = indexedTable.verifyAndMergeProperties(newProperties)
-
     // Initialize the path option
     val storage = DataSource
       .buildStorageFormatFromOptions(writeOptions)
@@ -274,6 +257,14 @@ object QbeastCatalogUtils extends Logging {
             "to get all the benefits of data skipping. ")
     }
 
+    // Process the parameters/options/configuration sent to the table
+    val qTableID = QTableID(loc.toString)
+    val indexedTable = tableFactory.getIndexedTable(qTableID)
+    val newProperties =
+      if (!indexedTable.exists) indexedTable.selectColumnsToIndex(properties, dataFrame)
+      else properties
+    val allProperties = indexedTable.verifyAndMergeProperties(newProperties)
+
     // Create an object for the Catalog Table
     val t = new CatalogTable(
       identifier = id,
@@ -287,10 +278,7 @@ object QbeastCatalogUtils extends Logging {
       comment = commentOpt)
 
     // Verify the schema if it's an external table
-    val tableLocation = new Path(loc)
-    val hadoopConf = spark.sharedState.sparkContext.hadoopConfiguration
-    val fs = tableLocation.getFileSystem(hadoopConf)
-    val table = verifySchema(spark, fs, tableLocation, t)
+    val table = verifySchema(indexedTable, t)
 
     // 1. Update the Log in the File System
     updateLog(spark, indexedTable, dataFrame, schema, allProperties, tableCreationMode)

@@ -31,6 +31,7 @@ import org.apache.spark.internal.Logging
 import org.apache.spark.qbeast.config.COLUMN_SELECTOR_ENABLED
 import org.apache.spark.qbeast.config.DEFAULT_NUMBER_OF_RETRIES
 import org.apache.spark.sql.sources.BaseRelation
+import org.apache.spark.sql.types.StructType
 import org.apache.spark.sql.AnalysisExceptionFactory
 import org.apache.spark.sql.DataFrame
 import org.apache.spark.sql.Dataset
@@ -57,6 +58,12 @@ trait IndexedTable {
    * @return
    */
   def hasQbeastMetadata: Boolean
+
+  /**
+   * Returns the table schema
+   * @return
+   */
+  def schema: StructType
 
   /**
    * Adds the indexed columns to the parameter if:
@@ -251,6 +258,8 @@ private[table] class IndexedTableImpl(
   } catch {
     case _: Exception => false
   }
+
+  override def schema: StructType = snapshot.schema
 
   override def verifyAndMergeProperties(properties: Map[String, String]): Map[String, String] = {
     if (!exists) {

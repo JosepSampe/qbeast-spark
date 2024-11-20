@@ -178,13 +178,8 @@ class QbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec with Catalo
 
       val tmpDir = tmpWarehouse + "/test"
       val data = createTestData(spark)
-
-      println(data.schema)
       data.write.format("qbeast").option("columnsToIndex", "id").save(tmpDir)
-      val indexed1 = spark.read.format("qbeast").load(tmpDir)
-      println(indexed1.schema)
 
-      println("---------")
       spark.sql(
         "CREATE EXTERNAL TABLE student (id INT, name STRING, age INT) " +
           s"USING qbeast OPTIONS ('columnsToIndex'='id') LOCATION '$tmpDir'")

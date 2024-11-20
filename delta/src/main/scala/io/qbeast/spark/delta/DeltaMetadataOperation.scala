@@ -21,9 +21,6 @@ import org.apache.spark.sql.delta.schema.SchemaMergingUtils
 import org.apache.spark.sql.delta.DeltaErrors
 import org.apache.spark.sql.delta.MetadataMismatchErrorBuilder
 import org.apache.spark.sql.delta.OptimisticTransaction
-import org.apache.spark.sql.types.ArrayType
-import org.apache.spark.sql.types.DataType
-import org.apache.spark.sql.types.MapType
 import org.apache.spark.sql.types.StructType
 import org.apache.spark.sql.SparkSession
 
@@ -33,22 +30,6 @@ import org.apache.spark.sql.SparkSession
 private[delta] trait DeltaMetadataOperation
     extends MetadataOperation
     with ImplicitMetadataOperation {
-
-  /**
-   * Returns the same data type but set all nullability fields are true (ArrayType.containsNull,
-   * and MapType.valueContainsNull)
-   * @param dataType
-   *   the data type
-   * @return
-   *   same data type set to null
-   */
-  private def asNullable(dataType: DataType): DataType = {
-    dataType match {
-      case array: ArrayType => array.copy(containsNull = true)
-      case map: MapType => map.copy(valueContainsNull = true)
-      case other => other
-    }
-  }
 
   /**
    * Update Qbeast Metadata

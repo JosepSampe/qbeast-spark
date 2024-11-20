@@ -57,6 +57,7 @@ object DeltaMetadataManager extends MetadataManager {
   }
 
   override def loadSnapshot(tableID: QTableID): DeltaQbeastSnapshot = {
+    println(s"New snapshot ${tableID.id}")
     DeltaQbeastSnapshot(tableID)
   }
 

@@ -76,6 +76,8 @@ trait CatalogTestSuite {
   def createTestData(spark: SparkSession): DataFrame = {
     import spark.implicits._
     students.toDF()
+    // val rows = students.map(student => Row(student.id, student.name, student.age))
+    // spark.createDataFrame(spark.sparkContext.parallelize(rows), schema)
   }
 
   def createQbeastCatalog(

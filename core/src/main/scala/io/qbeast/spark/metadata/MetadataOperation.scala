@@ -23,6 +23,9 @@ import io.qbeast.spark.internal.QbeastOptions
 import io.qbeast.spark.utils.MetadataConfig
 import io.qbeast.spark.utils.MetadataConfig.lastRevisionID
 import io.qbeast.spark.utils.MetadataConfig.revision
+import org.apache.spark.sql.types.ArrayType
+import org.apache.spark.sql.types.DataType
+import org.apache.spark.sql.types.MapType
 
 /**
  * Qbeast metadata changes on a Delta Table.
@@ -30,6 +33,22 @@ import io.qbeast.spark.utils.MetadataConfig.revision
 trait MetadataOperation extends StagingUtils {
 
   type Configuration = Map[String, String]
+
+  /**
+   * Returns the same data type but set all nullability fields are true (ArrayType.containsNull,
+   * and MapType.valueContainsNull)
+   * @param dataType
+   *   the data type
+   * @return
+   *   same data type set to null
+   */
+  protected def asNullable(dataType: DataType): DataType = {
+    dataType match {
+      case array: ArrayType => array.copy(containsNull = true)
+      case map: MapType => map.copy(valueContainsNull = true)
+      case other => other
+    }
+  }
 
   private def overwriteQbeastConfiguration(baseConfiguration: Configuration): Configuration = {
     val revisionKeys = baseConfiguration.keys.filter(_.startsWith(MetadataConfig.revision))

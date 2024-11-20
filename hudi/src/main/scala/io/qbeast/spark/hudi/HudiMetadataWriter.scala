@@ -121,7 +121,14 @@ private[hudi] case class HudiMetadataWriter(
   }
 
   private def createHoodieClient(): SparkRDDWriteClient[_] = {
-    val avroSchema = SchemaConverters.toAvroType(schema)
+
+    // As in Delta, currently we treat the schema of data written to Delta is
+    // nullable=true because  it can come from any places and these random places
+    // may not respect nullable very well.
+    val dataSchema = StructType(schema.fields.map(field =>
+      field.copy(nullable = true, dataType = asNullable(field.dataType))))
+
+    val avroSchema = SchemaConverters.toAvroType(dataSchema)
 
     val statsTrackers = createStatsTrackers()
     registerStatsTrackers(statsTrackers)
