@@ -60,7 +60,7 @@ private[catalog] case class DefaultStagedTable(
 
   override def name(): String = ident.name()
 
-  override def schema(): StructType = SparkCatalogV2Util.v2ColumnsToStructType(columns())
+  override def schema(): StructType = table.schema()
 
   override def columns(): Array[Column] = table.columns()
 

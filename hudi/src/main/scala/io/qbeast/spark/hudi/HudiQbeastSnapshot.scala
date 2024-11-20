@@ -81,24 +81,30 @@ case class HudiQbeastSnapshot(tableID: QTableID) extends QbeastSnapshot {
       } else {
         Map.empty[String, String]
       }
-    val tablePropsMap: Map[String, String] = loadProperties
-    val configuration = {
-      if (tablePropsMap.contains(MetadataConfig.configuration))
-        mapper
-          .readTree(tablePropsMap(MetadataConfig.configuration))
-          .fields()
-          .asScala
-          .map(entry => entry.getKey -> entry.getValue.asText())
-          .toMap
-      else
-        Map.empty[String, String]
-    }
+
+    val tablePropsMap = metaClient.getTableConfig.getProps.asScala.toMap
+    val configuration: Map[String, String] = tablePropsMap
+      .get(MetadataConfig.configuration)
+      .map { configJson =>
+        mapper.readValue[Map[String, String]](configJson, classOf[Map[String, String]])
+      }
+      .getOrElse(Map.empty)
 
     configuration ++ commitMetadataMap
   }
 
-  override def loadProperties: Map[String, String] =
-    metaClient.getTableConfig.getProps.asScala.toMap
+  override def loadProperties: Map[String, String] = {
+    val tablePropsMap = metaClient.getTableConfig.getProps.asScala.toMap
+    val configuration: Map[String, String] = tablePropsMap
+      .get(MetadataConfig.configuration)
+      .map { configJson =>
+        mapper.readValue[Map[String, String]](configJson, classOf[Map[String, String]])
+      }
+      .getOrElse(Map.empty)
+
+    tablePropsMap - MetadataConfig.configuration ++ configuration.filterKeys(k =>
+      !k.startsWith(MetadataConfig.revision))
+  }
 
   override def loadDescription: String = s"Hudi table snapshot at ${tableID.id}"
 

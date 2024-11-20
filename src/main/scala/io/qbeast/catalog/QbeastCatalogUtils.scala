@@ -15,12 +15,10 @@
  */
 package io.qbeast.catalog
 
-import io.qbeast.context.QbeastContext
 import io.qbeast.core.model.QTableID
 import io.qbeast.sources.v2.QbeastTableImpl
 import io.qbeast.table.IndexedTable
 import io.qbeast.table.IndexedTableFactory
-import org.apache.hadoop.fs.FileSystem
 import org.apache.hadoop.fs.Path
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.catalyst.analysis.CannotReplaceMissingTableException
@@ -219,7 +217,6 @@ object QbeastCatalogUtils extends Logging {
       tableFactory: IndexedTableFactory,
       existingSessionCatalog: SessionCatalog): Unit = {
 
-    println("createQbeastTable")
     val spark = SparkSession.active
     val isPathTable = QbeastCatalogUtils.isPathTable(ident)
     val properties = allTableProperties.asScala.toMap
