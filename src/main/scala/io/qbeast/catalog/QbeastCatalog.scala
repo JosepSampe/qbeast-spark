@@ -30,6 +30,7 @@ import org.apache.spark.sql.connector.catalog.functions.UnboundFunction
 import org.apache.spark.sql.connector.catalog.TableChange.RemoveProperty
 import org.apache.spark.sql.connector.catalog.TableChange.SetProperty
 import org.apache.spark.sql.connector.expressions.Transform
+import org.apache.spark.sql.delta.catalog.DeltaCatalog
 import org.apache.spark.sql.hudi.catalog.HoodieCatalog
 import org.apache.spark.sql.types.StructType
 import org.apache.spark.sql.util.CaseInsensitiveStringMap
