@@ -141,10 +141,13 @@ case class HudiQbeastSnapshot(tableID: QTableID) extends QbeastSnapshot {
     val dimensionCount = loadRevision(revisionID).transformations.size
     val indexFilesBuffer = ListBuffer[IndexFile]()
 
-    // Get the valid commits from the latest snapshot using the index
-    val commitTimes = loadFileIndex().inputFiles.map { filePath =>
+    val inputFiles = loadFileIndex().inputFiles
+    val commitTimes = inputFiles.map { filePath =>
       val fileName = new StoragePath(filePath).getName
       FSUtils.getCommitTime(fileName)
+    }.distinct
+    val fileNames = inputFiles.map { filePath =>
+      new StoragePath(filePath).getName
     }.distinct
 
     val timeline = metaClient.getActiveTimeline.getAllCommitsTimeline
@@ -159,7 +162,7 @@ case class HudiQbeastSnapshot(tableID: QTableID) extends QbeastSnapshot {
           HoodieCommitMetadata.fromBytes(commitMetadataBytes, classOf[HoodieCommitMetadata])
         val indexFiles = HudiQbeastFileUtils
           .fromCommitFile(dimensionCount)(commitMetadata)
-          .filter(_.revisionId == revisionID)
+          .filter(file => file.revisionId == revisionID && fileNames.contains(file.path))
 
         indexFilesBuffer ++= indexFiles
       }
