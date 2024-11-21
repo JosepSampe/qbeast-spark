@@ -21,6 +21,7 @@ import io.qbeast.spark.utils.QbeastExceptionMessages.incorrectIdentifierFormat
 import io.qbeast.spark.utils.QbeastExceptionMessages.partitionedTableExceptionMsg
 import io.qbeast.spark.utils.QbeastExceptionMessages.unsupportedFormatExceptionMsg
 import io.qbeast.QbeastIntegrationTestSpec
+import org.apache.spark.qbeast.config.DEFAULT_TABLE_FORMAT
 import org.apache.spark.sql.AnalysisException
 import org.apache.spark.sql.SparkSession
 import org.scalatest.PrivateMethodTester
@@ -36,7 +37,7 @@ class ConvertToQbeastTest
   val dcs = 5000
 
   val partitionedParquetExceptionMsg: String =
-    partitionedTableExceptionMsg + "Failed to convert the parquet table into delta: "
+    partitionedTableExceptionMsg + "Failed to convert the parquet table: "
 
   def convertFromFormat(
       spark: SparkSession,
@@ -63,8 +64,9 @@ class ConvertToQbeastTest
 
   behavior of "ConvertToQbeastCommand"
 
-  it should "convert a delta table" in withSparkAndTmpDir((spark, tmpDir) => {
-    val fileFormat = "delta"
+  it should "convert a table" in withSparkAndTmpDir((spark, tmpDir) => {
+
+    val fileFormat = DEFAULT_TABLE_FORMAT
     convertFromFormat(spark, fileFormat, tmpDir)
 
     val sourceDf = spark.read.format(fileFormat).load(tmpDir)
@@ -97,8 +99,8 @@ class ConvertToQbeastTest
     indexStatus.cubesStatuses.size shouldBe 1
   })
 
-  it should "fail to convert a PARTITIONED delta table" in withSparkAndTmpDir((spark, tmpDir) => {
-    val fileFormat = "delta"
+  it should "fail to convert a PARTITIONED table" in withSparkAndTmpDir((spark, tmpDir) => {
+    val fileFormat = DEFAULT_TABLE_FORMAT
 
     val thrown =
       the[AnalysisException] thrownBy
@@ -158,10 +160,11 @@ class ConvertToQbeastTest
   it should "convert if the path contains '.'" in withSparkAndTmpDir((spark, tmpDir) => {
     val location = s"$tmpDir/test.db/table"
     val identifier = s"parquet.`$location`"
+    val fileFormat = DEFAULT_TABLE_FORMAT
     loadTestData(spark)
       .limit(dataSize)
       .write
-      .format("delta")
+      .format(fileFormat)
       .save(location)
     ConvertToQbeastCommand(identifier, columnsToIndex, dcs).run(spark)
     getQbeastSnapshot(location).loadAllRevisions.size shouldBe 1
