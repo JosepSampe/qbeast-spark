@@ -6,7 +6,6 @@ import io.qbeast.spark.utils.MetadataConfig
 import io.qbeast.IISeq
 import org.apache.avro.Schema
 import org.apache.hadoop.fs.Path
-import org.apache.hudi.client.common.HoodieSparkEngineContext
 import org.apache.hudi.common.fs.FSUtils
 import org.apache.hudi.common.model.HoodieCommitMetadata
 import org.apache.hudi.common.table.HoodieTableMetaClient
@@ -50,6 +49,7 @@ case class HudiQbeastSnapshot(tableID: QTableID) extends QbeastSnapshot {
   override def isInitial: Boolean =
     metaClient.getCommitsTimeline.filterCompletedInstants.countInstants() == 0
 
+  /** Schema present in this Snapshot. */
   override lazy val schema: StructType = {
     if (metadataMap.contains(HoodieCommitMetadata.SCHEMA_KEY)) {
       val jsonSchema = metadataMap(HoodieCommitMetadata.SCHEMA_KEY)
@@ -58,16 +58,9 @@ case class HudiQbeastSnapshot(tableID: QTableID) extends QbeastSnapshot {
     } else StructType.apply(Nil)
   }
 
+  /** Count of all the files present in this Snapshot. */
   override lazy val allFilesCount: Long = {
-    val timeline = metaClient.getActiveTimeline.getAllCommitsTimeline
-    val completedInstants = timeline.filterCompletedInstants.getInstants.iterator().asScala
-    val tablePath = new StoragePath(tableID.id)
-    completedInstants.foldLeft(0L) { (totalFilesCount, instant) =>
-      val commitMetadataBytes = timeline.getInstantDetails(instant).get()
-      val commitMetadata =
-        HoodieCommitMetadata.fromBytes(commitMetadataBytes, classOf[HoodieCommitMetadata])
-      totalFilesCount + commitMetadata.getFileIdAndFullPaths(tablePath).keySet().size()
-    }
+    loadFileIndex().inputFiles.length
   }
 
   private val metadataMap: Map[String, String] = {

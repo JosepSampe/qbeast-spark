@@ -58,6 +58,7 @@ case class DeltaQbeastSnapshot(tableID: QTableID) extends QbeastSnapshot with De
 
   override lazy val schema: StructType = snapshot.metadata.schema
 
+  /** Count of all the files present in this Snapshot. */
   override lazy val allFilesCount: Long = snapshot.allFiles.count
 
   private val metadataMap: Map[String, String] = snapshot.metadata.configuration
