@@ -15,8 +15,11 @@
  */
 package io.qbeast.internal.commands
 
+import io.qbeast.context.QbeastContext
+import io.qbeast.core.model.QTableID
 import io.qbeast.sources.v2.QbeastTableImpl
 import org.apache.spark.internal.Logging
+import org.apache.spark.qbeast.config.DEFAULT_TABLE_FORMAT
 import org.apache.spark.sql.catalyst.plans.logical.IgnoreCachedData
 import org.apache.spark.sql.delta.catalog.DeltaTableV2
 import org.apache.spark.sql.delta.commands.AlterTableSetPropertiesDeltaCommand
@@ -33,19 +36,42 @@ case class AlterTableSetPropertiesQbeastCommand(
     with Logging {
 
   override def run(spark: SparkSession): Seq[Row] = {
-    val deltaTable =
-      DeltaTableV2(
-        spark,
-        qbeastTable.path,
-        qbeastTable.catalogTable,
-        Some(qbeastTable.tableIdentifier.toString),
-        None,
-        qbeastTable.options)
-    log.info(s"Setting new properties $configuration for table ${qbeastTable.tableIdentifier}")
-    AlterTableSetPropertiesDeltaCommand(
-      deltaTable,
-      DeltaConfigs.validateConfigurations(configuration))
-      .run(spark)
+
+    log.info(s"Setting properties $configuration for table ${qbeastTable.tableIdentifier}")
+
+    DEFAULT_TABLE_FORMAT match {
+      case "delta" =>
+        val deltaTable =
+          DeltaTableV2(
+            spark,
+            qbeastTable.path,
+            qbeastTable.catalogTable,
+            Some(qbeastTable.tableIdentifier.toString),
+            None,
+            qbeastTable.options)
+        log.info(
+          s"Setting new properties $configuration for table ${qbeastTable.tableIdentifier}")
+        AlterTableSetPropertiesDeltaCommand(
+          deltaTable,
+          DeltaConfigs.validateConfigurations(configuration))
+          .run(spark)
+
+      case "hudi" =>
+        val qTableID = new QTableID(qbeastTable.path.toString)
+        val snapshot = QbeastContext.metadataManager.loadSnapshot(qTableID)
+        val currentConfig = snapshot.loadConfiguration
+        QbeastContext.metadataManager.updateMetadataWithTransaction(qTableID, snapshot.schema) {
+          configuration.foldLeft(currentConfig) { case (accConf, (k, v)) =>
+            accConf.updated(k, v)
+          }
+        }
+        Seq.empty[Row]
+
+      case _ =>
+        throw new IllegalArgumentException(
+          s"AlterTableCommand for table format $DEFAULT_TABLE_FORMAT not found")
+    }
+
   }
 
 }
@@ -59,20 +85,40 @@ case class AlterTableUnsetPropertiesQbeastCommand(
     with Logging {
 
   override def run(spark: SparkSession): Seq[Row] = {
-    val deltaTable =
-      DeltaTableV2(
-        spark,
-        qbeastTable.path,
-        qbeastTable.catalogTable,
-        Some(qbeastTable.tableIdentifier.toString),
-        None,
-        qbeastTable.options)
+
     log.info(s"Unsetting properties $propKeys for table ${qbeastTable.tableIdentifier}")
-    AlterTableUnsetPropertiesDeltaCommand(
-      deltaTable,
-      propKeys,
-      // Data source V2 REMOVE PROPERTY is always IF EXISTS.
-      ifExists = true).run(spark)
+
+    DEFAULT_TABLE_FORMAT match {
+      case "delta" =>
+        val deltaTable =
+          DeltaTableV2(
+            spark,
+            qbeastTable.path,
+            qbeastTable.catalogTable,
+            Some(qbeastTable.tableIdentifier.toString),
+            None,
+            qbeastTable.options)
+        AlterTableUnsetPropertiesDeltaCommand(
+          deltaTable,
+          propKeys,
+          // Data source V2 REMOVE PROPERTY is always IF EXISTS.
+          ifExists = true).run(spark)
+
+      case "hudi" =>
+        val qTableID = new QTableID(qbeastTable.path.toString)
+        val snapshot = QbeastContext.metadataManager.loadSnapshot(qTableID)
+        val currentConfig = snapshot.loadConfiguration
+        QbeastContext.metadataManager.overwriteMetadataWithTransaction(
+          qTableID,
+          snapshot.schema) {
+          currentConfig -- propKeys
+        }
+        Seq.empty[Row]
+
+      case _ =>
+        throw new IllegalArgumentException(
+          s"AlterTableCommand for table format $DEFAULT_TABLE_FORMAT not found")
+    }
 
   }
 

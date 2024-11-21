@@ -87,6 +87,7 @@ private[delta] case class DeltaMetadataWriter(
 
   /**
    * Creates an instance of basic stats tracker on the desired transaction
+   *
    * @param txn
    *   the transaction
    * @return
@@ -110,6 +111,7 @@ private[delta] case class DeltaMetadataWriter(
 
   /**
    * Register a pre-commit hook
+   *
    * @param preCommitHook
    *   the hook to register
    */
@@ -121,6 +123,7 @@ private[delta] case class DeltaMetadataWriter(
 
   /**
    * Load the pre-commit hooks from the options
+   *
    * @return
    *   the loaded hooks
    */
@@ -207,22 +210,32 @@ private[delta] case class DeltaMetadataWriter(
     }
   }
 
-  def updateMetadataWithTransaction(update: => Configuration): Unit = {
+  def updateMetadataWithTransaction(config: => Configuration): Unit = {
     deltaLog.withNewTransaction(None, Some(deltaLog.update())) { txn =>
       if (txn.metadata.partitionColumns.nonEmpty) {
         throw AnalysisExceptionFactory.create(partitionedTableExceptionMsg)
       }
-
-      val config = update
       val updatedConfig = config.foldLeft(txn.metadata.configuration) { case (accConf, (k, v)) =>
         accConf.updated(k, v)
       }
-      val updatedMetadata = txn.metadata.copy(configuration = updatedConfig)
-
-      val op = DeltaOperations.SetTableProperties(config)
-      txn.updateMetadata(updatedMetadata)
-      txn.commit(Seq.empty, op)
+      commitMetadata(txn, updatedConfig)
     }
+  }
+
+  def overwriteMetadataWithTransaction(config: => Configuration): Unit = {
+    deltaLog.withNewTransaction(None, Some(deltaLog.update())) { txn =>
+      if (txn.metadata.partitionColumns.nonEmpty) {
+        throw AnalysisExceptionFactory.create(partitionedTableExceptionMsg)
+      }
+      commitMetadata(txn, config)
+    }
+  }
+
+  private def commitMetadata(txn: OptimisticTransaction, config: Configuration): Unit = {
+    val updatedMetadata = txn.metadata.copy(configuration = config)
+    val op = DeltaOperations.SetTableProperties(config)
+    txn.updateMetadata(updatedMetadata)
+    txn.commit(Seq.empty, op)
   }
 
   private def updateReplicatedFiles(tableChanges: TableChanges): Seq[Action] = {

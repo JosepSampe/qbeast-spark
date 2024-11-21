@@ -62,6 +62,12 @@ trait QbeastSnapshot {
   def loadProperties: Map[String, String]
 
   /**
+   * The current table configuration of the snapshot.
+   * @return
+   */
+  def loadConfiguration: Map[String, String]
+
+  /**
    * Load methods
    */
 

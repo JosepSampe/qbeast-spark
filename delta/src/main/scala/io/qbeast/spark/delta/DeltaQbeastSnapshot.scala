@@ -72,6 +72,8 @@ case class DeltaQbeastSnapshot(tableID: QTableID) extends QbeastSnapshot with De
   override def loadProperties: Map[String, String] =
     snapshot.getProperties.filterKeys(k => !k.startsWith(MetadataConfig.revision)).toMap
 
+  override def loadConfiguration: Map[String, String] = metadataMap
+
   /**
    * The current table description.
    * @return

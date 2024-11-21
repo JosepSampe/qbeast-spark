@@ -106,6 +106,16 @@ case class HudiQbeastSnapshot(tableID: QTableID) extends QbeastSnapshot {
       !k.startsWith(MetadataConfig.revision))
   }
 
+  override def loadConfiguration: Map[String, String] = {
+    val tablePropsMap = metaClient.getTableConfig.getProps.asScala.toMap
+    tablePropsMap
+      .get(MetadataConfig.configuration)
+      .map { configJson =>
+        mapper.readValue[Map[String, String]](configJson, classOf[Map[String, String]])
+      }
+      .getOrElse(Map.empty)
+  }
+
   override def loadDescription: String = s"Hudi table snapshot at ${tableID.id}"
 
   private val revisionsMap: Map[RevisionID, Revision] = {

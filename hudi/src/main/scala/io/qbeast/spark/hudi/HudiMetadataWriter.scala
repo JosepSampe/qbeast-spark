@@ -289,8 +289,18 @@ private[hudi] case class HudiMetadataWriter(
 
   }
 
-  def updateMetadataWithTransaction(configuration: => Configuration): Unit = {
+  def updateMetadataWithTransaction(config: => Configuration): Unit = {
+    val updatedConfig = config.foldLeft(getCurrentConfig) { case (accConf, (k, v)) =>
+      accConf.updated(k, v)
+    }
+    commitMetadata(updatedConfig)
+  }
 
+  def overwriteMetadataWithTransaction(config: => Configuration): Unit = {
+    commitMetadata(config)
+  }
+
+  private def commitMetadata(config: Configuration): Unit = {
     val hudiClient = createHoodieClient()
     val commitActionType =
       CommitUtils.getCommitActionType(WriteOperationType.ALTER_SCHEMA, metaClient.getTableType)
@@ -308,15 +318,11 @@ private[hudi] case class HudiMetadataWriter(
       requested,
       Option.of(getUTF8Bytes(metadata.toJsonString)))
 
-    val updatedConfig = configuration.foldLeft(getCurrentConfig) { case (accConf, (k, v)) =>
-      accConf.updated(k, v)
-    }
-
     updateTableMetadata(
       metaClient,
       schema,
       isOverwriteOperation,
-      updatedConfig,
+      config,
       hasRevisionUpdate = true // Force update the metadata
     )
 
@@ -390,15 +396,12 @@ private[hudi] case class HudiMetadataWriter(
 
   private def getCurrentConfig: Configuration = {
     val tablePropsMap = metaClient.getTableConfig.getProps.asScala.toMap
-    if (tablePropsMap.contains(MetadataConfig.configuration))
-      mapper
-        .readTree(tablePropsMap(MetadataConfig.configuration))
-        .fields()
-        .asScala
-        .map(entry => entry.getKey -> entry.getValue.asText())
-        .toMap
-    else
-      Map.empty[String, String]
+    tablePropsMap
+      .get(MetadataConfig.configuration)
+      .map { configJson =>
+        mapper.readValue[Map[String, String]](configJson, classOf[Map[String, String]])
+      }
+      .getOrElse(Map.empty)
   }
 
   private def getAllIndexFiles: IISeq[IndexFile] = {

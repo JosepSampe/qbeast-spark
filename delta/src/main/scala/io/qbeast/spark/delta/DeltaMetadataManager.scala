@@ -42,7 +42,7 @@ object DeltaMetadataManager extends MetadataManager {
   }
 
   override def updateMetadataWithTransaction(tableID: QTableID, schema: StructType)(
-      update: => Configuration): Unit = {
+      config: => Configuration): Unit = {
     val deltaLog = loadDeltaLog(tableID)
     val metadataWriter =
       DeltaMetadataWriter(
@@ -51,9 +51,20 @@ object DeltaMetadataManager extends MetadataManager {
         deltaLog,
         QbeastOptions.empty,
         schema)
+    metadataWriter.updateMetadataWithTransaction(config)
+  }
 
-    metadataWriter.updateMetadataWithTransaction(update)
-
+  override def overwriteMetadataWithTransaction(tableID: QTableID, schema: StructType)(
+      config: => Configuration): Unit = {
+    val deltaLog = loadDeltaLog(tableID)
+    val metadataWriter =
+      DeltaMetadataWriter(
+        tableID,
+        SaveMode.Append.toString,
+        deltaLog,
+        QbeastOptions.empty,
+        schema)
+    metadataWriter.overwriteMetadataWithTransaction(config)
   }
 
   override def loadSnapshot(tableID: QTableID): DeltaQbeastSnapshot = {

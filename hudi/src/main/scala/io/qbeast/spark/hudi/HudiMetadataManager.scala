@@ -53,7 +53,7 @@ object HudiMetadataManager extends MetadataManager {
   }
 
   override def updateMetadataWithTransaction(tableID: QTableID, schema: StructType)(
-      update: => Configuration): Unit = {
+      config: => Configuration): Unit = {
 
     val metaClient = loadMetaClient(tableID)
     val metadataWriter =
@@ -64,7 +64,23 @@ object HudiMetadataManager extends MetadataManager {
         QbeastOptions.empty,
         schema)
 
-    metadataWriter.updateMetadataWithTransaction(update)
+    metadataWriter.updateMetadataWithTransaction(config)
+
+  }
+
+  override def overwriteMetadataWithTransaction(tableID: QTableID, schema: StructType)(
+      config: => Configuration): Unit = {
+
+    val metaClient = loadMetaClient(tableID)
+    val metadataWriter =
+      HudiMetadataWriter(
+        tableID,
+        SaveMode.Append.toString,
+        metaClient,
+        QbeastOptions.empty,
+        schema)
+
+    metadataWriter.overwriteMetadataWithTransaction(config)
 
   }
 
