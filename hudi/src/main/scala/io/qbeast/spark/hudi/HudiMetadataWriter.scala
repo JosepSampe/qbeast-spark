@@ -17,6 +17,7 @@ package io.qbeast.spark.hudi
 
 import io.qbeast.core.model._
 import io.qbeast.core.model.PreCommitHook.PreCommitHookOutput
+import io.qbeast.spark.hudi.HudiMetadataManager.spark
 import io.qbeast.spark.internal.QbeastOptions
 import io.qbeast.spark.utils.MetadataConfig
 import io.qbeast.spark.utils.TagUtils
@@ -51,8 +52,8 @@ import org.apache.spark.sql.avro.SchemaConverters
 import org.apache.spark.sql.execution.datasources.BasicWriteJobStatsTracker
 import org.apache.spark.sql.execution.datasources.WriteJobStatsTracker
 import org.apache.spark.sql.hudi.HoodieSqlCommonUtils.isHoodieConfigKey
+import org.apache.spark.sql.qbeast.MetadataMismatchErrorBuilder
 import org.apache.spark.sql.types.StructType
-import org.apache.spark.sql.AnalysisExceptionFactory
 import org.apache.spark.sql.SaveMode
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.util.SerializableConfiguration
@@ -83,7 +84,8 @@ private[hudi] case class HudiMetadataWriter(
     mode: String,
     metaClient: HoodieTableMetaClient,
     qbeastOptions: QbeastOptions,
-    schema: StructType)
+    tableSchema: StructType,
+    dataSchema: StructType)
     extends HudiMetadataOperation
     with Logging {
 
@@ -93,9 +95,9 @@ private[hudi] case class HudiMetadataWriter(
 
   private val jsc = new JavaSparkContext(spark.sparkContext)
 
-  private def isOverwriteOperation = mode == SaveMode.Overwrite.toString
+  private val isOverwriteOperation = mode == SaveMode.Overwrite.toString
 
-  private def isOptimizeOperation = mode == "Optimize"
+  private val isOptimizeOperation = mode == "Optimize"
 
   private val tableMetadata: HoodieTableMetadata =
     new HoodieBackedTableMetadata(
@@ -104,6 +106,12 @@ private[hudi] case class HudiMetadataWriter(
       HoodieMetadataConfig.newBuilder().enable(true).build(),
       tableID.id,
       false)
+
+  // As in Delta, currently we treat the schema of data written to Delta is
+  // nullable=true because  it can come from any places and these random places
+  // may not respect nullable very well.
+  private val schema: StructType = StructType(dataSchema.fields.map(field =>
+    field.copy(nullable = true, dataType = asNullable(field.dataType))))
 
   /**
    * Creates an instance of basic stats tracker on the desired transaction
@@ -122,13 +130,7 @@ private[hudi] case class HudiMetadataWriter(
 
   private def createHoodieClient(): SparkRDDWriteClient[_] = {
 
-    // As in Delta, currently we treat the schema of data written to Delta is
-    // nullable=true because  it can come from any places and these random places
-    // may not respect nullable very well.
-    val dataSchema = StructType(schema.fields.map(field =>
-      field.copy(nullable = true, dataType = asNullable(field.dataType))))
-
-    val avroSchema = SchemaConverters.toAvroType(dataSchema)
+    val avroSchema = SchemaConverters.toAvroType(schema)
 
     val statsTrackers = createStatsTrackers()
     registerStatsTrackers(statsTrackers)
@@ -215,6 +217,13 @@ private[hudi] case class HudiMetadataWriter(
       writer: String => (TableChanges, Seq[IndexFile], Seq[DeleteFile])): Unit = {
 
     val isNewTable = metaClient.getCommitsTimeline.filterCompletedInstants.countInstants() == 0
+
+    // Verify the schema
+    if (!isNewTable && !tableSchema.equals(schema)) {
+      val errorBuilder = new MetadataMismatchErrorBuilder
+      errorBuilder.addSchemaMismatch(tableSchema, schema, tableID.id)
+      errorBuilder.finalizeAndThrow(spark.sessionState.conf)
+    }
 
     val hudiClient = createHoodieClient()
 
@@ -320,7 +329,6 @@ private[hudi] case class HudiMetadataWriter(
 
     updateTableMetadata(
       metaClient,
-      schema,
       isOverwriteOperation,
       config,
       hasRevisionUpdate = true // Force update the metadata
@@ -374,12 +382,7 @@ private[hudi] case class HudiMetadataWriter(
       qbeastOptions)
 
     // Write the qbeast configuration to the table properties metadata
-    updateTableMetadata(
-      metaClient,
-      schema,
-      isOverwriteOperation,
-      newConfiguration,
-      hasRevisionUpdate)
+    updateTableMetadata(metaClient, isOverwriteOperation, newConfiguration, hasRevisionUpdate)
 
     val deletedFiles = if (isOverwriteOperation && !isNewTable) {
       getAllIndexFiles.map { indexFile =>

@@ -467,14 +467,14 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
           .load(basePath)
           .count())
 
-//      Thread.sleep(2000)
-//      val data4 = createTestData(spark, 200)
-//      data4.write
-//        .format(tableFormat)
-//        .mode("overwrite")
-//        .options(hudiOptions)
-//        .option("columnsToIndex", "id")
-//        .save(basePath)
+      Thread.sleep(2000)
+      val data4 = createTestData(spark, 200)
+      data4.write
+        .format(tableFormat)
+        .mode("overwrite")
+        .options(hudiOptions)
+        .option("columnsToIndex", "id")
+        .save(basePath)
 
       println(
         spark.read

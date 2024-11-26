@@ -21,7 +21,6 @@ import io.qbeast.spark.utils.MetadataConfig
 import org.apache.hudi.common.table.HoodieTableConfig
 import org.apache.hudi.common.table.HoodieTableMetaClient
 import org.apache.hudi.storage.StoragePath
-import org.apache.spark.sql.types.StructType
 
 /**
  * Qbeast metadata changes on a Delta Table.
@@ -41,12 +40,9 @@ private[hudi] trait HudiMetadataOperation extends MetadataOperation {
    */
   def updateTableMetadata(
       metaClient: HoodieTableMetaClient,
-      schema: StructType,
       isOverwriteMode: Boolean,
       configuration: Configuration,
       hasRevisionUpdate: Boolean): Unit = {
-
-    // TODO: Check if this needs to handle schema evolution like Delta
 
     if (!hasRevisionUpdate)
       return

@@ -20,6 +20,7 @@ import io.qbeast.spark.internal.QbeastOptions
 import io.qbeast.IISeq
 import org.apache.hadoop.fs.FileSystem
 import org.apache.hadoop.fs.Path
+import org.apache.hudi.common.config.TypedProperties
 import org.apache.hudi.common.model.HoodieFileFormat
 import org.apache.hudi.common.model.HoodieTableType
 import org.apache.hudi.common.model.HoodieTimelineTimeZone
@@ -31,6 +32,7 @@ import org.apache.spark.sql.SaveMode
 import org.apache.spark.sql.SparkSession
 
 import java.nio.file.Paths
+import scala.jdk.CollectionConverters.mapAsJavaMapConverter
 
 /**
  * Spark+Delta implementation of the MetadataManager interface
@@ -38,6 +40,8 @@ import java.nio.file.Paths
 object HudiMetadataManager extends MetadataManager {
 
   private val jsc = new JavaSparkContext(SparkSession.active.sparkContext)
+  private val spark = SparkSession.active
+  private val hadoopConf = spark.sparkContext.hadoopConfiguration
 
   override def updateWithTransaction(
       tableID: QTableID,
@@ -46,15 +50,20 @@ object HudiMetadataManager extends MetadataManager {
       mode: String)(
       writer: String => (TableChanges, IISeq[IndexFile], IISeq[DeleteFile])): Unit = {
 
+    if (!existsLog(tableID)) createTable(tableID, options.extraOptions)
+
+    val tableSchema = loadCurrentSchema(tableID)
     val metaClient = loadMetaClient(tableID)
-    val metadataWriter = HudiMetadataWriter(tableID, mode, metaClient, options, schema)
+    val metadataWriter =
+      HudiMetadataWriter(tableID, mode, metaClient, options, tableSchema, schema)
 
     metadataWriter.writeWithTransaction(writer)
   }
 
-  override def updateMetadataWithTransaction(tableID: QTableID, schema: StructType)(
+  override def updateMetadataWithTransaction(tableID: QTableID, dataSchema: StructType)(
       config: => Configuration): Unit = {
 
+    val tableSchema = loadCurrentSchema(tableID)
     val metaClient = loadMetaClient(tableID)
     val metadataWriter =
       HudiMetadataWriter(
@@ -62,15 +71,17 @@ object HudiMetadataManager extends MetadataManager {
         SaveMode.Append.toString,
         metaClient,
         QbeastOptions.empty,
-        schema)
+        tableSchema,
+        dataSchema)
 
     metadataWriter.updateMetadataWithTransaction(config)
 
   }
 
-  override def overwriteMetadataWithTransaction(tableID: QTableID, schema: StructType)(
+  override def overwriteMetadataWithTransaction(tableID: QTableID, dataSchema: StructType)(
       config: => Configuration): Unit = {
 
+    val tableSchema = loadCurrentSchema(tableID)
     val metaClient = loadMetaClient(tableID)
     val metadataWriter =
       HudiMetadataWriter(
@@ -78,16 +89,14 @@ object HudiMetadataManager extends MetadataManager {
         SaveMode.Append.toString,
         metaClient,
         QbeastOptions.empty,
-        schema)
+        tableSchema,
+        dataSchema)
 
     metadataWriter.overwriteMetadataWithTransaction(config)
 
   }
 
   override def loadSnapshot(tableID: QTableID): HudiQbeastSnapshot = {
-    // Check a better way to create the table if it does not exist
-    println(s"New snapshot ${tableID.id}")
-    createLog(tableID)
     HudiQbeastSnapshot(tableID)
   }
 
@@ -136,12 +145,8 @@ object HudiMetadataManager extends MetadataManager {
    * @return
    */
   override def existsLog(tableID: QTableID): Boolean = {
-    val spark = SparkSession.active
-    val hadoopConf = spark.sparkContext.hadoopConfiguration
-    // val hadoopConf = spark.sessionState.newHadoopConf()
-    val fs = FileSystem.get(hadoopConf)
-    val hoodiePath = new Path(tableID.id, ".hoodie")
-    fs.exists(hoodiePath)
+    val hoodiePath = new Path(tableID.id, HoodieTableMetaClient.METAFOLDER_NAME)
+    FileSystem.get(hadoopConf).exists(hoodiePath)
   }
 
   /**
@@ -152,26 +157,37 @@ object HudiMetadataManager extends MetadataManager {
    */
   override def createLog(tableID: QTableID): Unit = {
     if (!existsLog(tableID)) {
-      val jsc = new JavaSparkContext(SparkSession.active.sparkContext)
-      val sc = HadoopFSUtils.getStorageConfWithCopy(jsc.hadoopConfiguration())
-      val tableName = Paths.get(tableID.id).getFileName.toString
-
-      HoodieTableMetaClient
-        .withPropertyBuilder()
-        .setTableType(HoodieTableType.COPY_ON_WRITE)
-        .setBaseFileFormat(HoodieFileFormat.PARQUET.name())
-        .setCommitTimezone(HoodieTimelineTimeZone.LOCAL)
-        .setHiveStylePartitioningEnable(false)
-        .setPartitionMetafileUseBaseFormat(false)
-        .setCDCEnabled(false)
-        .setPopulateMetaFields(true)
-        .setUrlEncodePartitioning(false)
-        .setKeyGeneratorClassProp("org.apache.hudi.keygen.NonpartitionedKeyGenerator")
-        .setTableName(tableName)
-        .setDatabaseName("")
-        .setPartitionFields("")
-        .initTable(sc, tableID.id)
+      val hoodiePath = new Path(tableID.id, HoodieTableMetaClient.METAFOLDER_NAME)
+      FileSystem.get(hadoopConf).mkdirs(hoodiePath)
     }
+  }
+
+  /**
+   * Creates the initial table files
+   *
+   * @param tableID
+   *   Table ID
+   */
+  private def createTable(tableID: QTableID, tableConfigs: Map[String, String]): Unit = {
+    val storageConfig = HadoopFSUtils.getStorageConfWithCopy(jsc.hadoopConfiguration())
+    val properties = TypedProperties.fromMap(tableConfigs.asJava)
+
+    HoodieTableMetaClient
+      .withPropertyBuilder()
+      .setTableType(HoodieTableType.COPY_ON_WRITE)
+      .setBaseFileFormat(HoodieFileFormat.PARQUET.name())
+      .setCommitTimezone(HoodieTimelineTimeZone.LOCAL)
+      .setHiveStylePartitioningEnable(false)
+      .setPartitionMetafileUseBaseFormat(false)
+      .setCDCEnabled(false)
+      .setPopulateMetaFields(true)
+      .setUrlEncodePartitioning(false)
+      .setKeyGeneratorClassProp("org.apache.hudi.keygen.NonpartitionedKeyGenerator")
+      .setDatabaseName("")
+      .setPartitionFields("")
+      .setTableName(Paths.get(tableID.id).getFileName.toString)
+      .fromProperties(properties)
+      .initTable(storageConfig, tableID.id)
   }
 
 }

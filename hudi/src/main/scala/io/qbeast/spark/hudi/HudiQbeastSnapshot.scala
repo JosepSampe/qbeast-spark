@@ -35,7 +35,7 @@ case class HudiQbeastSnapshot(tableID: QTableID) extends QbeastSnapshot {
 
   private val jsc = new JavaSparkContext(spark.sparkContext)
 
-  private val metaClient: HoodieTableMetaClient = HoodieTableMetaClient
+  private lazy val metaClient: HoodieTableMetaClient = HoodieTableMetaClient
     .builder()
     .setConf(HadoopFSUtils.getStorageConfWithCopy(jsc.hadoopConfiguration()))
     .setBasePath(tableID.id)
@@ -46,8 +46,9 @@ case class HudiQbeastSnapshot(tableID: QTableID) extends QbeastSnapshot {
    *
    * @return
    */
-  override def isInitial: Boolean =
-    metaClient.getCommitsTimeline.filterCompletedInstants.countInstants() == 0
+  override def isInitial: Boolean = !basePath
+    .getFileSystem(jsc.hadoopConfiguration())
+    .exists(new Path(basePath, HoodieTableMetaClient.METAFOLDER_NAME))
 
   /** Schema present in this Snapshot. */
   override lazy val schema: StructType = {
@@ -63,7 +64,7 @@ case class HudiQbeastSnapshot(tableID: QTableID) extends QbeastSnapshot {
     loadFileIndex().inputFiles.length
   }
 
-  private val metadataMap: Map[String, String] = {
+  private lazy val metadataMap: Map[String, String] = {
     val lastCommitMetadata = metaClient.getActiveTimeline.getLastCommitMetadataWithValidSchema
     val commitMetadataMap: Map[String, String] =
       if (lastCommitMetadata.isPresent) {
@@ -111,7 +112,7 @@ case class HudiQbeastSnapshot(tableID: QTableID) extends QbeastSnapshot {
 
   override def loadDescription: String = s"Hudi table snapshot at ${tableID.id}"
 
-  private val revisionsMap: Map[RevisionID, Revision] = {
+  private lazy val revisionsMap: Map[RevisionID, Revision] = {
     val listRevisions = metadataMap.filterKeys(_.startsWith(MetadataConfig.revision))
     listRevisions.map { case (key, json) =>
       val revisionID = key.split('.').last.toLong
@@ -120,7 +121,7 @@ case class HudiQbeastSnapshot(tableID: QTableID) extends QbeastSnapshot {
     }
   }
 
-  private val lastRevisionID: RevisionID =
+  private lazy val lastRevisionID: RevisionID =
     metadataMap.getOrElse(MetadataConfig.lastRevisionID, "-1").toLong
 
   private def getRevision(revisionID: RevisionID): Revision = {

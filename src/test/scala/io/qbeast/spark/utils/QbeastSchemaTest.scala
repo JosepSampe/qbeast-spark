@@ -117,7 +117,7 @@ class QbeastSchemaTest extends QbeastIntegrationTestSpec {
 
   it should "not replace schemas from other table if the type do not match" in
     withQbeastContextSparkAndTmpWarehouse((spark, tmpDir) => {
-      println(tmpDir)
+
       val tableFormat = DEFAULT_TABLE_FORMAT
 
       spark.sql(
@@ -129,10 +129,8 @@ class QbeastSchemaTest extends QbeastIntegrationTestSpec {
         s"CREATE TABLE student (id INT, name STRING, age INT) USING $tableFormat " +
           "OPTIONS ('columnsToIndex'='id')")
 
-      spark.sql("INSERT INTO student SELECT * FROM student_parquet")
-
-//      an[AnalysisException] shouldBe thrownBy(
-//        spark.sql("INSERT INTO student SELECT * FROM student_parquet"))
+      an[AnalysisException] shouldBe thrownBy(
+        spark.sql("INSERT INTO student SELECT * FROM student_parquet"))
 
     })
 
@@ -153,13 +151,14 @@ class QbeastSchemaTest extends QbeastIntegrationTestSpec {
 
       import spark.implicits._
 
+      removeDirectory("spark-warehouse/tmp")
+
       spark.sql(
         "CREATE TABLE student (id INT) USING qbeast " +
           "OPTIONS ('columnsToIndex'='id')")
 
-      val dfExtraCol = Seq((1, "John"), (2, "Doe")).toDF("id", "name")
-
       // EXTRA COLUMN
+      val dfExtraCol = Seq((1, "John"), (2, "Doe")).toDF("id", "name")
       an[AnalysisException] shouldBe thrownBy(
         dfExtraCol.write
           .format("qbeast")

@@ -88,6 +88,7 @@ class QbeastCatalog[T <: TableCatalog with SupportsNamespaces with FunctionCatal
   private def getSessionCatalog(properties: Map[String, String] = Map.empty): T = {
     properties.get("provider") match {
       case Some("delta") => deltaCatalog.asInstanceOf[T]
+      case Some("hudi") => deltaCatalog.asInstanceOf[T]
       case _ => getDelegatedCatalog
     }
   }
@@ -141,7 +142,7 @@ class QbeastCatalog[T <: TableCatalog with SupportsNamespaces with FunctionCatal
     } else {
       getSessionCatalog(properties.asScala.toMap).createTable(
         ident,
-        SparkCatalogV2Util.structTypeToV2Columns(schema),
+        schema,
         partitions,
         properties)
     }
