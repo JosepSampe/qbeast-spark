@@ -4,16 +4,16 @@ import io.qbeast.core.model._
 import io.qbeast.spark.index.IndexStatusBuilder
 import io.qbeast.spark.utils.MetadataConfig
 import io.qbeast.IISeq
-import org.apache.avro.Schema
 import org.apache.hadoop.fs.Path
 import org.apache.hudi.common.fs.FSUtils
 import org.apache.hudi.common.model.HoodieCommitMetadata
 import org.apache.hudi.common.table.HoodieTableMetaClient
+import org.apache.hudi.common.table.TableSchemaResolver
 import org.apache.hudi.hadoop.fs.HadoopFSUtils
 import org.apache.hudi.storage.StoragePath
+import org.apache.hudi.AvroConversionUtils
 import org.apache.hudi.HoodieFileIndex
 import org.apache.spark.api.java.JavaSparkContext
-import org.apache.spark.sql.avro.SchemaConverters
 import org.apache.spark.sql.catalyst.expressions.Expression
 import org.apache.spark.sql.execution.datasources.FileIndex
 import org.apache.spark.sql.execution.datasources.FileStatusCache
@@ -52,10 +52,10 @@ case class HudiQbeastSnapshot(tableID: QTableID) extends QbeastSnapshot {
 
   /** Schema present in this Snapshot. */
   override lazy val schema: StructType = {
-    if (metadataMap.contains(HoodieCommitMetadata.SCHEMA_KEY)) {
-      val jsonSchema = metadataMap(HoodieCommitMetadata.SCHEMA_KEY)
-      val avroSchema = new Schema.Parser().parse(jsonSchema)
-      SchemaConverters.toSqlType(avroSchema).dataType.asInstanceOf[StructType]
+    val tableSchemaResolver = new TableSchemaResolver(metaClient)
+    val avroSchema = tableSchemaResolver.getTableAvroSchemaFromLatestCommit(false)
+    if (avroSchema.isPresent) {
+      AvroConversionUtils.convertAvroSchemaToStructType(avroSchema.get)
     } else StructType.apply(Nil)
   }
 
@@ -65,26 +65,13 @@ case class HudiQbeastSnapshot(tableID: QTableID) extends QbeastSnapshot {
   }
 
   private lazy val metadataMap: Map[String, String] = {
-    val lastCommitMetadata = metaClient.getActiveTimeline.getLastCommitMetadataWithValidSchema
-    val commitMetadataMap: Map[String, String] =
-      if (lastCommitMetadata.isPresent) {
-        val commitMetadata = lastCommitMetadata.get().getValue
-        commitMetadata.getExtraMetadata.asScala.toMap.filterNot { case (key, _) =>
-          key.startsWith("qbeast")
-        }
-      } else {
-        Map.empty[String, String]
-      }
-
     val tablePropsMap = metaClient.getTableConfig.getProps.asScala.toMap
-    val configuration: Map[String, String] = tablePropsMap
+    tablePropsMap
       .get(MetadataConfig.configuration)
       .map { configJson =>
         mapper.readValue[Map[String, String]](configJson, classOf[Map[String, String]])
       }
       .getOrElse(Map.empty)
-
-    configuration ++ commitMetadataMap
   }
 
   override def loadProperties: Map[String, String] = {

@@ -91,8 +91,7 @@ class HudiQbeastCatalogTest extends QbeastIntegrationTestSpec {
         .mode("append")
         .option("hoodie.table.name", "student")
         .option("columnsToIndex", "id")
-        .option("hoodie.write.set.null.for.missing.columns", "true")
-        // .option("hoodie.datasource.write.reconcile.schema", "true")
+        // .option("hoodie.write.set.null.for.missing.columns", "true")
         .option("hoodie.schema.on.read.enable", "true")
         .save(location)
 
@@ -107,8 +106,6 @@ class HudiQbeastCatalogTest extends QbeastIntegrationTestSpec {
         .format("hudi")
         .mode("append")
         // .option("hoodie.write.set.null.for.missing.columns", "true")
-        // .option("hoodie.datasource.write.reconcile.schema", "true")
-        .option("hoodie.schema.on.read.enable", "true")
         .option("columnsToIndex", "id")
         .save(location)
 

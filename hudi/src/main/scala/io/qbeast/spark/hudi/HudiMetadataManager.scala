@@ -171,6 +171,7 @@ object HudiMetadataManager extends MetadataManager {
   private def createTable(tableID: QTableID, tableConfigs: Map[String, String]): Unit = {
     val storageConfig = HadoopFSUtils.getStorageConfWithCopy(jsc.hadoopConfiguration())
     val properties = TypedProperties.fromMap(tableConfigs.asJava)
+    // val hoodieConfig = HoodieWriterUtils.parametersWithWriteDefaults(tableConfigs)
 
     HoodieTableMetaClient
       .withPropertyBuilder()

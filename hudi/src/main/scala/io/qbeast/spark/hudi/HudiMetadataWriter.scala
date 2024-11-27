@@ -17,42 +17,60 @@ package io.qbeast.spark.hudi
 
 import io.qbeast.core.model._
 import io.qbeast.core.model.PreCommitHook.PreCommitHookOutput
-import io.qbeast.spark.hudi.HudiMetadataManager.spark
 import io.qbeast.spark.internal.QbeastOptions
 import io.qbeast.spark.utils.MetadataConfig
 import io.qbeast.spark.utils.TagUtils
-import io.qbeast.spark.writer.StatsTracker.registerStatsTrackers
 import io.qbeast.IISeq
+import org.apache.avro.Schema
+import org.apache.hudi
+import org.apache.hudi.avro.HoodieAvroUtils
 import org.apache.hudi.client.common.HoodieSparkEngineContext
 import org.apache.hudi.client.SparkRDDWriteClient
 import org.apache.hudi.client.WriteStatus
+import org.apache.hudi.common.config.HoodieCommonConfig
+import org.apache.hudi.common.config.HoodieConfig
 import org.apache.hudi.common.config.HoodieMetadataConfig
 import org.apache.hudi.common.fs.FSUtils
 import org.apache.hudi.common.model.ActionType
 import org.apache.hudi.common.model.HoodieCommitMetadata
 import org.apache.hudi.common.model.HoodiePartitionMetadata
+import org.apache.hudi.common.model.HoodiePayloadProps
+import org.apache.hudi.common.model.HoodieRecord
+import org.apache.hudi.common.model.HoodieTableType.COPY_ON_WRITE
+import org.apache.hudi.common.model.HoodieTableType.MERGE_ON_READ
 import org.apache.hudi.common.model.WriteOperationType
 import org.apache.hudi.common.table.timeline.HoodieActiveTimeline
 import org.apache.hudi.common.table.timeline.HoodieInstant
 import org.apache.hudi.common.table.timeline.HoodieInstant.State
+import org.apache.hudi.common.table.HoodieTableConfig
 import org.apache.hudi.common.table.HoodieTableMetaClient
+import org.apache.hudi.common.table.TableSchemaResolver
 import org.apache.hudi.common.util.CommitUtils
 import org.apache.hudi.common.util.HoodieTimer
-import org.apache.hudi.common.util.Option
 import org.apache.hudi.common.util.StringUtils.getUTF8Bytes
+import org.apache.hudi.config.HoodieCompactionConfig
+import org.apache.hudi.config.HoodieWriteConfig
+import org.apache.hudi.internal.schema.convert.AvroInternalSchemaConverter
+import org.apache.hudi.internal.schema.utils.SerDeHelper
+import org.apache.hudi.internal.schema.InternalSchema
 import org.apache.hudi.metadata.HoodieBackedTableMetadata
 import org.apache.hudi.metadata.HoodieTableMetadata
 import org.apache.hudi.storage.StoragePath
 import org.apache.hudi.table.HoodieSparkTable
+import org.apache.hudi.AvroConversionUtils
+import org.apache.hudi.AvroConversionUtils.getAvroRecordNameAndNamespace
+import org.apache.hudi.DataSourceOptionsHelper.fetchMissingWriteConfigsFromTableConfig
+import org.apache.hudi.DataSourceReadOptions
 import org.apache.hudi.DataSourceUtils
+import org.apache.hudi.DataSourceWriteOptions
+import org.apache.hudi.DataSourceWriteOptions._
+import org.apache.hudi.HoodieConversionUtils.toScalaOption
+import org.apache.hudi.HoodieSchemaUtils
 import org.apache.hudi.HoodieWriterUtils
 import org.apache.spark.api.java.JavaSparkContext
 import org.apache.spark.internal.Logging
-import org.apache.spark.sql.avro.SchemaConverters
 import org.apache.spark.sql.execution.datasources.BasicWriteJobStatsTracker
 import org.apache.spark.sql.execution.datasources.WriteJobStatsTracker
-import org.apache.spark.sql.hudi.HoodieSqlCommonUtils.isHoodieConfigKey
-import org.apache.spark.sql.qbeast.MetadataMismatchErrorBuilder
 import org.apache.spark.sql.types.StructType
 import org.apache.spark.sql.SaveMode
 import org.apache.spark.sql.SparkSession
@@ -128,36 +146,6 @@ private[hudi] case class HudiMetadataWriter(
     statsTrackers
   }
 
-  private def createHoodieClient(): SparkRDDWriteClient[_] = {
-
-    val avroSchema = SchemaConverters.toAvroType(schema)
-
-    val statsTrackers = createStatsTrackers()
-    registerStatsTrackers(statsTrackers)
-
-    // If tableName is provided, we need to add catalog props
-    //    val tableName = scala.Option("hudi_table")
-    //    val catalogProps = tableName match {
-    //      case Some(value) =>
-    //        HoodieOptionConfig.mapSqlOptionsToDataSourceWriteConfigs(
-    //          getHoodieCatalogTable(sparkSession, value).catalogProperties)
-    //      case None => Map.empty
-    //    }
-
-    // Priority: defaults < catalog props < table config < sparkSession conf < specified conf
-    val finalParameters = HoodieWriterUtils.parametersWithWriteDefaults(
-      metaClient.getTableConfig.getProps.asScala.toMap ++
-        spark.sqlContext.getAllConfs.filterKeys(isHoodieConfigKey) ++
-        qbeastOptions.extraOptions)
-
-    DataSourceUtils.createHoodieClient(
-      jsc,
-      avroSchema.toString,
-      basePath,
-      metaClient.getTableConfig.getTableName,
-      finalParameters.asJava)
-  }
-
   private val preCommitHooks = new ListBuffer[PreCommitHook]()
 
   // Load the pre-commit hooks
@@ -213,17 +201,82 @@ private[hudi] case class HudiMetadataWriter(
     }
   }
 
+  private def createHoodieClient(): SparkRDDWriteClient[_] = {
+
+    val optParams =
+      if (qbeastOptions.mergeSchema.contains("true"))
+        qbeastOptions.extraOptions ++ Map(SET_NULL_FOR_MISSING_COLUMNS.key -> "true")
+      else qbeastOptions.extraOptions
+
+    println(optParams)
+
+    val (parameters, hoodieConfig) = mergeParamsAndGetHoodieConfig(
+      optParams,
+      metaClient.getTableConfig,
+      if (isOverwriteOperation) SaveMode.Overwrite else SaveMode.Append)
+
+    val tblName = hoodieConfig
+      .getStringOrThrow(
+        HoodieWriteConfig.TBL_NAME,
+        s"'${HoodieWriteConfig.TBL_NAME.key}' must be set.")
+      .trim
+
+    val shouldReconcileSchema = parameters(
+      DataSourceWriteOptions.RECONCILE_SCHEMA.key()).toBoolean
+
+    val latestTableSchemaOpt = toScalaOption(
+      new TableSchemaResolver(metaClient).getTableAvroSchemaFromLatestCommit(false))
+
+    val (avroRecordName, avroRecordNamespace) = latestTableSchemaOpt
+      .map(s => (s.getName, s.getNamespace))
+      .getOrElse(getAvroRecordNameAndNamespace(tblName))
+
+    val sourceSchema = AvroConversionUtils
+      .convertStructTypeToAvroSchema(schema, avroRecordName, avroRecordNamespace)
+
+    val internalSchemaOpt =
+      HoodieSchemaUtils.getLatestTableInternalSchema(hoodieConfig, metaClient).orElse {
+        // In case we need to reconcile the schema and schema evolution is enabled,
+        // we will force-apply schema evolution to the writer's schema
+        if (shouldReconcileSchema && hoodieConfig.getBooleanOrDefault(
+            DataSourceReadOptions.SCHEMA_EVOLUTION_ENABLED)) {
+          val allowOperationMetaDataField = parameters
+            .getOrElse(HoodieWriteConfig.ALLOW_OPERATION_METADATA_FIELD.key(), "false")
+            .toBoolean
+          Some(
+            AvroInternalSchemaConverter.convert(
+              HoodieAvroUtils.addMetadataFields(
+                latestTableSchemaOpt.getOrElse(sourceSchema),
+                allowOperationMetaDataField)))
+        } else {
+          None
+        }
+      }
+
+    val writerSchema = HoodieSchemaUtils.deduceWriterSchema(
+      sourceSchema,
+      latestTableSchemaOpt,
+      internalSchemaOpt,
+      parameters)
+
+    val finalOpts = addSchemaEvolutionParameters(
+      parameters,
+      internalSchemaOpt,
+      Some(writerSchema)) - HoodieWriteConfig.AUTO_COMMIT_ENABLE.key
+
+    DataSourceUtils.createHoodieClient(
+      jsc,
+      writerSchema.toString,
+      basePath,
+      tblName,
+      finalOpts.asJava)
+
+  }
+
   def writeWithTransaction(
       writer: String => (TableChanges, Seq[IndexFile], Seq[DeleteFile])): Unit = {
 
     val isNewTable = metaClient.getCommitsTimeline.filterCompletedInstants.countInstants() == 0
-
-    // Verify the schema
-    if (!isNewTable && !tableSchema.equals(schema)) {
-      val errorBuilder = new MetadataMismatchErrorBuilder
-      errorBuilder.addSchemaMismatch(tableSchema, schema, tableID.id)
-      errorBuilder.finalizeAndThrow(spark.sessionState.conf)
-    }
 
     val hudiClient = createHoodieClient()
 
@@ -245,7 +298,7 @@ private[hudi] case class HudiMetadataWriter(
     metadata.setOperationType(operationType)
     timeLine.transitionRequestedToInflight(
       requested,
-      Option.of(getUTF8Bytes(metadata.toJsonString)))
+      hudi.common.util.Option.of(getUTF8Bytes(metadata.toJsonString)))
 
     val extraMeta = new util.HashMap[String, String]()
 
@@ -289,11 +342,11 @@ private[hudi] case class HudiMetadataWriter(
       hudiClient.commit(
         instantTime,
         writeStatusRdd,
-        Option.of(extraMeta),
+        hudi.common.util.Option.of(extraMeta),
         commitActionType,
         replacedFileIds)
     } else {
-      hudiClient.commit(instantTime, writeStatusRdd, Option.of(extraMeta))
+      hudiClient.commit(instantTime, writeStatusRdd, hudi.common.util.Option.of(extraMeta))
     }
 
   }
@@ -325,7 +378,7 @@ private[hudi] case class HudiMetadataWriter(
     metadata.setOperationType(WriteOperationType.ALTER_SCHEMA)
     timeLine.transitionRequestedToInflight(
       requested,
-      Option.of(getUTF8Bytes(metadata.toJsonString)))
+      hudi.common.util.Option.of(getUTF8Bytes(metadata.toJsonString)))
 
     updateTableMetadata(
       metaClient,
@@ -369,7 +422,7 @@ private[hudi] case class HudiMetadataWriter(
           instantTime,
           metaClient.getBasePathV2,
           metaClient.getBasePathV2,
-          Option.empty())
+          hudi.common.util.Option.empty())
       partitionMetadata.trySave()
     }
 
@@ -442,6 +495,91 @@ private[hudi] case class HudiMetadataWriter(
     val fileUUIDs = deleteFiles.map(deleteFile => FSUtils.getFileId(deleteFile.path))
 
     Map("" -> fileUUIDs.asJava).asJava
+  }
+
+  private def mergeParamsAndGetHoodieConfig(
+      optParams: Map[String, String],
+      tableConfig: HoodieTableConfig,
+      mode: SaveMode): (Map[String, String], HoodieConfig) = {
+    val translatedOptions = DataSourceWriteOptions.mayBeDerivePartitionPath(optParams)
+    var translatedOptsWithMappedTableConfig = mutable.Map.empty ++ translatedOptions.toMap
+    if (tableConfig != null && mode != SaveMode.Overwrite) {
+      // for missing write configs corresponding to table configs, fill them up.
+      fetchMissingWriteConfigsFromTableConfig(tableConfig, optParams).foreach((kv) =>
+        translatedOptsWithMappedTableConfig += (kv._1 -> kv._2))
+    }
+    if (null != tableConfig && mode != SaveMode.Overwrite) {
+      // over-ride only if not explicitly set by the user.
+      tableConfig.getProps.asScala
+        .filter(kv => !optParams.contains(kv._1))
+        .foreach { case (key, value) =>
+          translatedOptsWithMappedTableConfig += (key -> value)
+        }
+    }
+    val mergedParams = mutable.Map.empty ++ HoodieWriterUtils.parametersWithWriteDefaults(
+      translatedOptsWithMappedTableConfig.toMap)
+    if (!mergedParams.contains(HoodieTableConfig.KEY_GENERATOR_CLASS_NAME.key)
+      && mergedParams.contains(KEYGENERATOR_CLASS_NAME.key)) {
+      mergedParams(HoodieTableConfig.KEY_GENERATOR_CLASS_NAME.key) = mergedParams(
+        DataSourceWriteOptions.KEYGENERATOR_CLASS_NAME.key)
+    }
+    // use preCombineField to fill in PAYLOAD_ORDERING_FIELD_PROP_KEY
+    if (mergedParams.contains(PRECOMBINE_FIELD.key())) {
+      mergedParams.put(
+        HoodiePayloadProps.PAYLOAD_ORDERING_FIELD_PROP_KEY,
+        mergedParams(PRECOMBINE_FIELD.key()))
+    }
+    if (mergedParams(OPERATION.key()) == INSERT_OPERATION_OPT_VAL && mergedParams
+        .contains(DataSourceWriteOptions.INSERT_DUP_POLICY.key())
+      && mergedParams(DataSourceWriteOptions.INSERT_DUP_POLICY.key()) != FAIL_INSERT_DUP_POLICY) {
+      // enable merge allow duplicates when operation type is insert
+      mergedParams.put(HoodieWriteConfig.MERGE_ALLOW_DUPLICATE_ON_INSERTS_ENABLE.key(), "true")
+    }
+    // disable drop partition columns when upsert MOR table
+    if (mergedParams(OPERATION.key) == UPSERT_OPERATION_OPT_VAL
+      && mergedParams.getOrElse(
+        DataSourceWriteOptions.TABLE_TYPE.key,
+        COPY_ON_WRITE.name) == MERGE_ON_READ.name) {
+      mergedParams.put(HoodieTableConfig.DROP_PARTITION_COLUMNS.key, "false")
+    }
+
+    val params = mergedParams.toMap
+    (params, HoodieWriterUtils.convertMapToHoodieConfig(params))
+  }
+
+  private def addSchemaEvolutionParameters(
+      parameters: Map[String, String],
+      internalSchemaOpt: scala.Option[InternalSchema],
+      writeSchemaOpt: scala.Option[Schema] = None): Map[String, String] = {
+    val schemaEvolutionEnable = if (internalSchemaOpt.isDefined) "true" else "false"
+
+    val schemaValidateEnable =
+      if (schemaEvolutionEnable.toBoolean && parameters
+          .getOrElse(DataSourceWriteOptions.RECONCILE_SCHEMA.key(), "false")
+          .toBoolean) {
+        // force disable schema validate, now we support schema evolution, no need to do validate
+        "false"
+      } else {
+        parameters.getOrElse(HoodieWriteConfig.AVRO_SCHEMA_VALIDATE_ENABLE.key(), "true")
+      }
+    // correct internalSchema, internalSchema should contain hoodie metadata columns.
+    val correctInternalSchema = internalSchemaOpt.map { internalSchema =>
+      if (internalSchema.findField(
+          HoodieRecord.RECORD_KEY_METADATA_FIELD) == null && writeSchemaOpt.isDefined) {
+        val allowOperationMetaDataField = parameters
+          .getOrElse(HoodieWriteConfig.ALLOW_OPERATION_METADATA_FIELD.key(), "false")
+          .toBoolean
+        AvroInternalSchemaConverter.convert(
+          HoodieAvroUtils.addMetadataFields(writeSchemaOpt.get, allowOperationMetaDataField))
+      } else {
+        internalSchema
+      }
+    }
+    parameters ++ Map(
+      HoodieWriteConfig.INTERNAL_SCHEMA_STRING.key() -> SerDeHelper.toJson(
+        correctInternalSchema.orNull),
+      HoodieCommonConfig.SCHEMA_EVOLUTION_ENABLE.key() -> schemaEvolutionEnable,
+      HoodieWriteConfig.AVRO_SCHEMA_VALIDATE_ENABLE.key() -> schemaValidateEnable)
   }
 
 }

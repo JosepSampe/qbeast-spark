@@ -42,6 +42,7 @@ import org.apache.hudi.metadata.MetadataPartitionType
 import org.apache.hudi.metadata.SparkHoodieBackedTableMetadataWriter
 import org.apache.hudi.storage.StoragePath
 import org.apache.hudi.table.HoodieSparkTable
+import org.apache.hudi.DataSourceWriteOptions.SET_NULL_FOR_MISSING_COLUMNS
 import org.apache.hudi.HoodieCLIUtils
 import org.apache.spark.api.java.JavaRDD
 import org.apache.spark.api.java.JavaSparkContext
@@ -437,41 +438,10 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
           .load(basePath)
           .count())
 
-      Thread.sleep(2000)
-      val data3 = createTestData(spark, 800)
-      data3.write
-        .format(tableFormat)
-        .mode("overwrite")
-        .options(hudiOptions)
-        .option("columnsToIndex", "id")
-        .save(basePath)
-
-      println(
-        spark.read
-          .format(tableFormat)
-          .load(basePath)
-          .count())
-
-      Thread.sleep(2000)
-      val data2 = createTestData(spark, 300)
+      val data2 = createTestData(spark, 500)
       data2.write
         .format(tableFormat)
         .mode("append")
-        .options(hudiOptions)
-        .option("columnsToIndex", "id")
-        .save(basePath)
-
-      println(
-        spark.read
-          .format(tableFormat)
-          .load(basePath)
-          .count())
-
-      Thread.sleep(2000)
-      val data4 = createTestData(spark, 200)
-      data4.write
-        .format(tableFormat)
-        .mode("overwrite")
         .options(hudiOptions)
         .option("columnsToIndex", "id")
         .save(basePath)
@@ -520,7 +490,7 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
     "optimize qbeast table" in withExtendedSparkAndTmpDir(hudiSparkConf) { (spark, tmpDir) =>
       val tableName: String = "hudi_table_optimize"
       val currentPath = Paths.get("").toAbsolutePath.toString
-      val basePath = s"$currentPath/spark-warehouse/$tableName"
+      val basePath = s"$currentPath/spark-josep/$tableName"
 
       removeDirectory(basePath)
 
@@ -558,6 +528,7 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
       println(qbeastTable.getIndexMetrics)
       qbeastTable.optimize()
 
+      println("Appending 50 rows")
       val data4 = createTestData(spark, 50)
       data4.write
         .format("qbeast")
@@ -566,6 +537,7 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
         .option("columnsToIndex", "id")
         .save(basePath)
 
+      println("Querying. Total rows:")
       println(
         spark.read
           .format("qbeast")
@@ -623,5 +595,65 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
           .count())
 
     }
+
+  it should "not merge schemas if specified with DataFrame API" in withQbeastContextSparkAndTmpWarehouse(
+    (spark, _) => {
+
+      import spark.implicits._
+
+      removeDirectory("spark-warehouse/hudi_schema")
+
+      val format = "hudi"
+
+      val df = Seq(1, 2).toDF("id")
+      val path = s"/Users/josep/IdeaProjects/qbeast-spark/spark-warehouse/hudi_schema"
+      df.write
+        .format(format)
+        .mode("overwrite")
+        .option("hoodie.table.name", "student")
+        .option("columnsToIndex", "id")
+        .save(path)
+
+      val dfExtraCol = Seq((3, "John"), (4, "Doe")).toDF("id", "name")
+
+      // this will be executed properly
+      dfExtraCol.write
+        .format(format)
+        .mode("append")
+        .save(path)
+
+      // This will fail
+      val renamedDF = Seq((5, "John", 10)).toDF("id", "name2", "age")
+      renamedDF.write
+        .format(format)
+        .mode("append")
+        .option("columnsToIndex", "id")
+        .option(SET_NULL_FOR_MISSING_COLUMNS.key, "true")
+        .option("mergeSchema", "true")
+        .save(path)
+
+      //      spark.read
+      //        .format("qbeast")
+      //        .load(path)
+      //        .schema
+      //        .fieldNames shouldBe dfExtraCol.schema.fieldNames
+
+      //      val dfExtraCol2 = Seq((3, "JohnSS"), (4, "DoeSSSS")).toDF("id", "surname")
+      //
+      //      // EXTRA COLUMN
+      //
+      //      dfExtraCol2.write
+      //        .format("qbeast")
+      //        .mode("append")
+      //        .option("mergeSchema", "true")
+      //        .option("columnsToIndex", "id")
+      //        .save(path)
+
+      spark.read
+        .format(format)
+        .load(path)
+        .show(false)
+
+    })
 
 }

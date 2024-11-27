@@ -60,10 +60,6 @@ trait QbeastIntegrationTestSpec extends AnyFlatSpec with Matchers with DatasetCo
     .set("spark.kryo.registrator", "org.apache.spark.HoodieSparkKryoRegistrar")
     .set("spark.qbeast.tableFormat", "hudi")
     .set("spark.sql.extensions", "io.qbeast.sql.HudiQbeastSparkSessionExtension")
-    // .set("hoodie.datasource.write.schema.evolution.enable", "true")
-    // .set("hoodie.write.set.null.for.missing.columns", "true")
-    // .set("hoodie.datasource.write.reconcile.schema", "true")
-    // .set("hoodie.schema.on.read.enable", "true")
     .set(SQLConf.V2_SESSION_CATALOG_IMPLEMENTATION.key, "io.qbeast.catalog.QbeastCatalog")
 
   def loadTestData(spark: SparkSession): DataFrame = spark.read
