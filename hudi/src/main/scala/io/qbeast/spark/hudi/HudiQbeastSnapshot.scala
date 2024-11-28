@@ -75,19 +75,12 @@ case class HudiQbeastSnapshot(tableID: QTableID) extends QbeastSnapshot {
   }
 
   override def loadProperties: Map[String, String] = {
-    val tablePropsMap = metaClient.getTableConfig.getProps.asScala.toMap
-    val configuration: Map[String, String] = tablePropsMap
-      .get(MetadataConfig.configuration)
-      .map { configJson =>
-        mapper.readValue[Map[String, String]](configJson, classOf[Map[String, String]])
-      }
-      .getOrElse(Map.empty)
-
-    tablePropsMap - MetadataConfig.configuration ++ configuration.filterKeys(k =>
-      !k.startsWith(MetadataConfig.revision))
+    metadataMap.filterKeys(k => !k.startsWith(MetadataConfig.revision))
   }
 
-  override def loadConfiguration: Map[String, String] = {
+  override def loadConfiguration: Map[String, String] = metadataMap
+
+  override def loadTags: Map[String, String] = {
     val tablePropsMap = metaClient.getTableConfig.getProps.asScala.toMap
     tablePropsMap
       .get(MetadataConfig.configuration)

@@ -59,11 +59,8 @@ case class AlterTableSetPropertiesQbeastCommand(
       case "hudi" =>
         val qTableID = new QTableID(qbeastTable.path.toString)
         val snapshot = QbeastContext.metadataManager.loadSnapshot(qTableID)
-        val currentConfig = snapshot.loadConfiguration
         QbeastContext.metadataManager.updateMetadataWithTransaction(qTableID, snapshot.schema) {
-          configuration.foldLeft(currentConfig) { case (accConf, (k, v)) =>
-            accConf.updated(k, v)
-          }
+          configuration
         }
         Seq.empty[Row]
 
@@ -108,9 +105,10 @@ case class AlterTableUnsetPropertiesQbeastCommand(
         val qTableID = new QTableID(qbeastTable.path.toString)
         val snapshot = QbeastContext.metadataManager.loadSnapshot(qTableID)
         val currentConfig = snapshot.loadConfiguration
-        QbeastContext.metadataManager.overwriteMetadataWithTransaction(
+        QbeastContext.metadataManager.updateMetadataWithTransaction(
           qTableID,
-          snapshot.schema) {
+          snapshot.schema,
+          overwrite = true) {
           currentConfig -- propKeys
         }
         Seq.empty[Row]

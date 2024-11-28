@@ -52,18 +52,18 @@ object HudiMetadataManager extends MetadataManager {
 
     if (!existsLog(tableID)) createTable(tableID, options.extraOptions)
 
-    val tableSchema = loadCurrentSchema(tableID)
     val metaClient = loadMetaClient(tableID)
     val metadataWriter =
-      HudiMetadataWriter(tableID, mode, metaClient, options, tableSchema, schema)
+      HudiMetadataWriter(tableID, mode, metaClient, options, schema)
 
     metadataWriter.writeWithTransaction(writer)
   }
 
-  override def updateMetadataWithTransaction(tableID: QTableID, dataSchema: StructType)(
-      config: => Configuration): Unit = {
+  override def updateMetadataWithTransaction(
+      tableID: QTableID,
+      dataSchema: StructType,
+      overwrite: Boolean)(config: => Configuration): Unit = {
 
-    val tableSchema = loadCurrentSchema(tableID)
     val metaClient = loadMetaClient(tableID)
     val metadataWriter =
       HudiMetadataWriter(
@@ -71,28 +71,9 @@ object HudiMetadataManager extends MetadataManager {
         SaveMode.Append.toString,
         metaClient,
         QbeastOptions.empty,
-        tableSchema,
         dataSchema)
 
-    metadataWriter.updateMetadataWithTransaction(config)
-
-  }
-
-  override def overwriteMetadataWithTransaction(tableID: QTableID, dataSchema: StructType)(
-      config: => Configuration): Unit = {
-
-    val tableSchema = loadCurrentSchema(tableID)
-    val metaClient = loadMetaClient(tableID)
-    val metadataWriter =
-      HudiMetadataWriter(
-        tableID,
-        SaveMode.Append.toString,
-        metaClient,
-        QbeastOptions.empty,
-        tableSchema,
-        dataSchema)
-
-    metadataWriter.overwriteMetadataWithTransaction(config)
+    metadataWriter.updateMetadataWithTransaction(config, overwrite)
 
   }
 
@@ -171,7 +152,6 @@ object HudiMetadataManager extends MetadataManager {
   private def createTable(tableID: QTableID, tableConfigs: Map[String, String]): Unit = {
     val storageConfig = HadoopFSUtils.getStorageConfWithCopy(jsc.hadoopConfiguration())
     val properties = TypedProperties.fromMap(tableConfigs.asJava)
-    // val hoodieConfig = HoodieWriterUtils.parametersWithWriteDefaults(tableConfigs)
 
     HoodieTableMetaClient
       .withPropertyBuilder()

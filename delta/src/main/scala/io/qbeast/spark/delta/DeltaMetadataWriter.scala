@@ -210,32 +210,23 @@ private[delta] case class DeltaMetadataWriter(
     }
   }
 
-  def updateMetadataWithTransaction(config: => Configuration): Unit = {
+  def updateMetadataWithTransaction(config: => Configuration, overwrite: Boolean): Unit = {
     deltaLog.withNewTransaction(None, Some(deltaLog.update())) { txn =>
       if (txn.metadata.partitionColumns.nonEmpty) {
         throw AnalysisExceptionFactory.create(partitionedTableExceptionMsg)
       }
-      val updatedConfig = config.foldLeft(txn.metadata.configuration) { case (accConf, (k, v)) =>
-        accConf.updated(k, v)
-      }
-      commitMetadata(txn, updatedConfig)
-    }
-  }
+      val updatedConfig =
+        if (overwrite) config
+        else
+          config.foldLeft(txn.metadata.configuration) { case (accConf, (k, v)) =>
+            accConf.updated(k, v)
+          }
 
-  def overwriteMetadataWithTransaction(config: => Configuration): Unit = {
-    deltaLog.withNewTransaction(None, Some(deltaLog.update())) { txn =>
-      if (txn.metadata.partitionColumns.nonEmpty) {
-        throw AnalysisExceptionFactory.create(partitionedTableExceptionMsg)
-      }
-      commitMetadata(txn, config)
+      val updatedMetadata = txn.metadata.copy(configuration = updatedConfig)
+      val op = DeltaOperations.SetTableProperties(config)
+      txn.updateMetadata(updatedMetadata)
+      txn.commit(Seq.empty, op)
     }
-  }
-
-  private def commitMetadata(txn: OptimisticTransaction, config: Configuration): Unit = {
-    val updatedMetadata = txn.metadata.copy(configuration = config)
-    val op = DeltaOperations.SetTableProperties(config)
-    txn.updateMetadata(updatedMetadata)
-    txn.commit(Seq.empty, op)
   }
 
   private def updateReplicatedFiles(tableChanges: TableChanges): Seq[Action] = {

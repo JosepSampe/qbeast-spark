@@ -254,12 +254,15 @@ object QbeastCatalogUtils extends Logging {
             "to get all the benefits of data skipping. ")
     }
 
+    // Set the table name
+    val props = properties ++ Map("hoodie.table.name" -> ident.name())
+
     // Process the parameters/options/configuration sent to the table
     val qTableID = QTableID(loc.toString)
     val indexedTable = tableFactory.getIndexedTable(qTableID)
     val newProperties =
-      if (!indexedTable.exists) indexedTable.selectColumnsToIndex(properties, dataFrame)
-      else properties
+      if (!indexedTable.exists) indexedTable.selectColumnsToIndex(props, dataFrame)
+      else props
     val allProperties = indexedTable.verifyAndMergeProperties(newProperties)
 
     // Create an object for the Catalog Table

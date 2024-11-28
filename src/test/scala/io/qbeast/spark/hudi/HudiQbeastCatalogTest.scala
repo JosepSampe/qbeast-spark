@@ -53,6 +53,11 @@ class HudiQbeastCatalogTest extends QbeastIntegrationTestSpec {
     .set("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
     .set("spark.kryo.registrator", "org.apache.spark.HoodieSparkKryoRegistrar")
     .set("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.hudi.catalog.HoodieCatalog")
+    .set("hoodie.datasource.write.precombine.field", "QBEAST")
+    .set("hoodie.metadata.enable", "true")
+    .set("hoodie.enable.data.skipping", "true")
+    .set("hoodie.metadata.index.column.stats.enable", "true")
+    .set("spark.qbeast.tableFormat", "hudi")
 
   "Hudi Qbeast Catalog" should
     "create a table" in withExtendedSparkAndTmpDir(hudiSparkConf) { (spark, tmpDir) =>
@@ -75,44 +80,49 @@ class HudiQbeastCatalogTest extends QbeastIntegrationTestSpec {
       import spark.implicits._
 
       removeDirectory("spark-warehouse/student")
-      removeDirectory("spark-warehouse/tmp")
 
       spark.sql(
         "CREATE TABLE student (id INT) USING hudi " +
           "OPTIONS ('columnsToIndex'='id')")
       spark.sql("INSERT INTO student VALUES (1), (2)")
 
-      val location = s"/Users/josep/IdeaProjects/qbeast-spark/spark-warehouse/tmp/student"
+      val format = "qbeast"
 
-      val dfExtraCol = Seq((3, "John"), (4, "Doe")).toDF("id", "name")
+      val df = Seq(1, 2).toDF("id")
+      val path = s"$tmpDir/student"
+      df.write
+        .format(format)
+        .mode("overwrite")
+        .option("hoodie.table.name", "students")
+        .option("columnsToIndex", "id")
+        .save(path)
 
+      val dfExtraCol = Seq((1, "John"), (2, "Doe")).toDF("id", "name")
       dfExtraCol.write
-        .format("hudi")
-        .mode("append")
-        .option("hoodie.table.name", "student")
-        .option("columnsToIndex", "id")
-        // .option("hoodie.write.set.null.for.missing.columns", "true")
-        .option("hoodie.schema.on.read.enable", "true")
-        .save(location)
-
-      spark.read
-        .format("hudi")
-        .load(location)
-        .show(100, false)
-
-      val dfExtraCol2 = Seq((5, "John"), (6, "Doe")).toDF("id", "surname")
-
-      dfExtraCol2.write
-        .format("hudi")
+        .format(format)
         .mode("append")
         // .option("hoodie.write.set.null.for.missing.columns", "true")
         .option("columnsToIndex", "id")
-        .save(location)
+        .save(path)
 
       spark.read
-        .format("hudi")
-        .load(location)
-        .show(100, false)
+        .format(format)
+        .load(path)
+        .show(false)
+
+      val renamedDF = Seq((1, "John", 10)).toDF("id", "name2", "age")
+
+      renamedDF.write
+        .format(format)
+        .mode("append")
+        // .option("hoodie.write.set.null.for.missing.columns", "true")
+        .option("columnsToIndex", "id")
+        .save(path)
+
+      spark.read
+        .format(format)
+        .load(path)
+        .show(false)
     }
 
 }

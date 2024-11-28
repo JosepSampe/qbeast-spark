@@ -30,6 +30,8 @@ class PreCommitHookIntegrationTest extends QbeastIntegrationTestSpec {
     withQbeastContextSparkAndTmpDir { (spark, tmpDir) =>
       import spark.implicits._
 
+      println(tmpDir)
+
       val df = spark.sparkContext.range(0, 10).toDF("id")
 
       df.write
@@ -42,16 +44,8 @@ class PreCommitHookIntegrationTest extends QbeastIntegrationTestSpec {
         .option(s"$PRE_COMMIT_HOOKS_PREFIX.hook_2.arg", "k2:v2")
         .save(tmpDir)
 
-      val deltaLog = DeltaLog.forTable(spark, tmpDir)
-      val snapshot = deltaLog.update()
-      val conf = deltaLog.newDeltaHadoopConf()
-
-      val infoTags = deltaLog.store
-        .read(FileNames.deltaFile(deltaLog.logPath, snapshot.version), conf)
-        .map(Action.fromJson)
-        .collect { case commitInfo: CommitInfo => commitInfo.tags }
-
-      infoTags shouldBe Some(Map("k1" -> "v1", "k2" -> "v2")) :: Nil
+      val snapshot = getQbeastSnapshot(tmpDir)
+      snapshot.loadTags shouldBe Map("k1" -> "v1", "k2" -> "v2")
     }
 
   it should "run a simple hook and save its outputs to CommitInfo during an optimization" in
@@ -75,16 +69,8 @@ class PreCommitHookIntegrationTest extends QbeastIntegrationTestSpec {
           s"$PRE_COMMIT_HOOKS_PREFIX.hook_2" -> classOf[SimpleHook].getCanonicalName,
           s"$PRE_COMMIT_HOOKS_PREFIX.hook_2.arg" -> "k2:v2"))
 
-      val deltaLog = DeltaLog.forTable(spark, tmpDir)
-      val snapshot = deltaLog.update()
-      val conf = deltaLog.newDeltaHadoopConf()
-
-      val infoTags = deltaLog.store
-        .read(FileNames.deltaFile(deltaLog.logPath, snapshot.version), conf)
-        .map(Action.fromJson)
-        .collect { case commitInfo: CommitInfo => commitInfo.tags }
-
-      infoTags shouldBe Some(Map("k1" -> "v1", "k2" -> "v2")) :: Nil
+      val snapshot = getQbeastSnapshot(tmpDir)
+      snapshot.loadTags shouldBe Map("k1" -> "v1", "k2" -> "v2")
     }
 
 }

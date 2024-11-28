@@ -50,6 +50,10 @@ trait QbeastSnapshot {
   def schema: StructType
 
   /**
+   * Load methods
+   */
+
+  /**
    * The current table description.
    * @return
    */
@@ -68,8 +72,10 @@ trait QbeastSnapshot {
   def loadConfiguration: Map[String, String]
 
   /**
-   * Load methods
+   * The current table tags of the snapshot.
+   * @return
    */
+  def loadTags: Map[String, String]
 
   /**
    * Obtains the latest IndexStatus

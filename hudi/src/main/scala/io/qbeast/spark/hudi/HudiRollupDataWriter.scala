@@ -102,10 +102,10 @@ object HudiRollupDataWriter extends RollupDataWriter {
         s"${timestamp}_${rank}_$id"
       })
 
-    val windowSpec = Window.orderBy("_qbeastCubeToRollup")
+    val windowSpec = Window.partitionBy("_qbeastCubeToRollup").orderBy("_qbeastCubeToRollup")
     val windowSpecGroup = Window.partitionBy("_qbeastCubeToRollup").orderBy("_qbeastCubeToRollup")
 
-    extendedData
+    val df = extendedData
       .withColumn("_token", generateToken(dense_rank().over(windowSpec) - 1))
       .withColumn("_hoodie_commit_time", lit(commitTime))
       .withColumn(
@@ -130,6 +130,10 @@ object HudiRollupDataWriter extends RollupDataWriter {
           lit(".parquet")))
       .withColumn(QbeastColumns.cubeToRollupFileName, col("_hoodie_file_name"))
       .drop("_token")
+
+    // df.show(10, false)
+
+    df
   }
 
 }

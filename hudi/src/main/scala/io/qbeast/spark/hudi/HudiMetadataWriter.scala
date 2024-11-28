@@ -20,6 +20,7 @@ import io.qbeast.core.model.PreCommitHook.PreCommitHookOutput
 import io.qbeast.spark.internal.QbeastOptions
 import io.qbeast.spark.utils.MetadataConfig
 import io.qbeast.spark.utils.TagUtils
+import io.qbeast.spark.writer.StatsTracker.registerStatsTrackers
 import io.qbeast.IISeq
 import org.apache.avro.Schema
 import org.apache.hudi
@@ -102,7 +103,6 @@ private[hudi] case class HudiMetadataWriter(
     mode: String,
     metaClient: HoodieTableMetaClient,
     qbeastOptions: QbeastOptions,
-    tableSchema: StructType,
     dataSchema: StructType)
     extends HudiMetadataOperation
     with Logging {
@@ -116,14 +116,6 @@ private[hudi] case class HudiMetadataWriter(
   private val isOverwriteOperation = mode == SaveMode.Overwrite.toString
 
   private val isOptimizeOperation = mode == "Optimize"
-
-  private val tableMetadata: HoodieTableMetadata =
-    new HoodieBackedTableMetadata(
-      new HoodieSparkEngineContext(jsc),
-      metaClient.getStorage,
-      HoodieMetadataConfig.newBuilder().enable(true).build(),
-      tableID.id,
-      false)
 
   // As in Delta, currently we treat the schema of data written to Delta is
   // nullable=true because  it can come from any places and these random places
@@ -208,8 +200,6 @@ private[hudi] case class HudiMetadataWriter(
         qbeastOptions.extraOptions ++ Map(SET_NULL_FOR_MISSING_COLUMNS.key -> "true")
       else qbeastOptions.extraOptions
 
-    println(optParams)
-
     val (parameters, hoodieConfig) = mergeParamsAndGetHoodieConfig(
       optParams,
       metaClient.getTableConfig,
@@ -263,6 +253,10 @@ private[hudi] case class HudiMetadataWriter(
       parameters,
       internalSchemaOpt,
       Some(writerSchema)) - HoodieWriteConfig.AUTO_COMMIT_ENABLE.key
+
+    // Check if it is necessary in hudi
+    val statsTrackers = createStatsTrackers()
+    registerStatsTrackers(statsTrackers)
 
     DataSourceUtils.createHoodieClient(
       jsc,
@@ -351,18 +345,14 @@ private[hudi] case class HudiMetadataWriter(
 
   }
 
-  def updateMetadataWithTransaction(config: => Configuration): Unit = {
-    val updatedConfig = config.foldLeft(getCurrentConfig) { case (accConf, (k, v)) =>
-      accConf.updated(k, v)
-    }
-    commitMetadata(updatedConfig)
-  }
+  def updateMetadataWithTransaction(config: => Configuration, overwrite: Boolean): Unit = {
+    val updatedConfig =
+      if (overwrite) config
+      else
+        config.foldLeft(getCurrentConfig) { case (accConf, (k, v)) =>
+          accConf.updated(k, v)
+        }
 
-  def overwriteMetadataWithTransaction(config: => Configuration): Unit = {
-    commitMetadata(config)
-  }
-
-  private def commitMetadata(config: Configuration): Unit = {
     val hudiClient = createHoodieClient()
     val commitActionType =
       CommitUtils.getCommitActionType(WriteOperationType.ALTER_SCHEMA, metaClient.getTableType)
@@ -383,7 +373,7 @@ private[hudi] case class HudiMetadataWriter(
     updateTableMetadata(
       metaClient,
       isOverwriteOperation,
-      config,
+      updatedConfig,
       hasRevisionUpdate = true // Force update the metadata
     )
 
@@ -461,6 +451,13 @@ private[hudi] case class HudiMetadataWriter(
   }
 
   private def getAllIndexFiles: IISeq[IndexFile] = {
+    val tableMetadata: HoodieTableMetadata =
+      new HoodieBackedTableMetadata(
+        new HoodieSparkEngineContext(jsc),
+        metaClient.getStorage,
+        HoodieMetadataConfig.newBuilder().enable(true).build(),
+        tableID.id,
+        false)
     val tablePath = new StoragePath(tableID.id)
     val allFilesM = tableMetadata.getAllFilesInPartition(tablePath).asScala
     allFilesM
@@ -502,7 +499,7 @@ private[hudi] case class HudiMetadataWriter(
       tableConfig: HoodieTableConfig,
       mode: SaveMode): (Map[String, String], HoodieConfig) = {
     val translatedOptions = DataSourceWriteOptions.mayBeDerivePartitionPath(optParams)
-    var translatedOptsWithMappedTableConfig = mutable.Map.empty ++ translatedOptions.toMap
+    val translatedOptsWithMappedTableConfig = mutable.Map.empty ++ translatedOptions
     if (tableConfig != null && mode != SaveMode.Overwrite) {
       // for missing write configs corresponding to table configs, fill them up.
       fetchMissingWriteConfigsFromTableConfig(tableConfig, optParams).foreach((kv) =>

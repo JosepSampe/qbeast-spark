@@ -68,22 +68,12 @@ trait MetadataManager {
    * @param schema
    *   table schema
    * @param config
-   *   configurations used to overwrite the existing metadata
+   *   configurations used to update the existing metadata
    */
-  def updateMetadataWithTransaction(tableID: QTableID, schema: StructType)(
-      config: => Configuration): Unit
-
-  /**
-   * Overwrites the entire table metadata with the provided configuraion key-value pairs.
-   * @param tableID
-   *   QTableID
-   * @param schema
-   *   table schema
-   * @param config
-   *   new configuration
-   */
-  def overwriteMetadataWithTransaction(tableID: QTableID, schema: StructType)(
-      config: => Configuration): Unit
+  def updateMetadataWithTransaction(
+      tableID: QTableID,
+      schema: StructType,
+      overwrite: Boolean = false)(config: => Configuration): Unit
 
   /**
    * Updates the Revision with the given RevisionChanges

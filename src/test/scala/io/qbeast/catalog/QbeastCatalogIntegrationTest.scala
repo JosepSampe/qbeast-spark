@@ -30,8 +30,6 @@ class QbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec with Catalo
         .set("spark.sql.warehouse.dir", tmpDir)
         .set("spark.sql.extensions", "io.qbeast.sql.HudiQbeastSparkSessionExtension")
         .set("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.hudi.catalog.HoodieCatalog")
-        // .set("spark.sql.extensions", "io.qbeast.sql.QbeastSparkSessionExtension")
-        // .set("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog")
         .set("spark.sql.catalog.qbeast_catalog", "io.qbeast.catalog.QbeastCatalog"))(spark => {
 
         val data = createTestData(spark)
@@ -160,7 +158,11 @@ class QbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec with Catalo
 
       val tmpDir = tmpWarehouse + "/test"
       val data = createTestData(spark)
-      data.write.format("qbeast").option("columnsToIndex", "id").save(tmpDir)
+      data.write
+        .format("qbeast")
+        .option("columnsToIndex", "id")
+        .option("hoodie.table.name", "student")
+        .save(tmpDir)
 
       spark.sql(
         "CREATE EXTERNAL TABLE student " +
@@ -177,7 +179,11 @@ class QbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec with Catalo
 
       val tmpDir = tmpWarehouse + "/test"
       val data = createTestData(spark)
-      data.write.format("qbeast").option("columnsToIndex", "id").save(tmpDir)
+      data.write
+        .format("qbeast")
+        .option("columnsToIndex", "id")
+        .option("hoodie.table.name", "student")
+        .save(tmpDir)
 
       spark.sql(
         "CREATE EXTERNAL TABLE student (id INT, name STRING, age INT) " +
@@ -194,7 +200,11 @@ class QbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec with Catalo
 
       val tmpDir = tmpWarehouse + "/test"
       val data = createTestData(spark)
-      data.write.format("qbeast").option("columnsToIndex", "id").save(tmpDir)
+      data.write
+        .format("qbeast")
+        .option("columnsToIndex", "id")
+        .option("hoodie.table.name", "student")
+        .save(tmpDir)
 
       an[AnalysisException] shouldBe thrownBy(
         spark.sql("CREATE EXTERNAL TABLE student (id INT, age INT) " +
@@ -215,11 +225,11 @@ class QbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec with Catalo
     withQbeastContextSparkAndTmpWarehouse((spark, _) => {
 
       spark.sql(
-        "CREATE TABLE student (id INT, name STRING, age INT)" +
+        "CREATE TABLE student2 (id INT, name STRING, age INT)" +
           " USING parquet")
 
       an[AnalysisException] shouldBe thrownBy(
-        spark.sql("REPLACE TABLE student (id INT, name STRING, age INT)" +
+        spark.sql("REPLACE TABLE student2 (id INT, name STRING, age INT)" +
           " USING qbeast OPTIONS ('columnsToIndex'='id')"))
 
     })
