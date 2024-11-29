@@ -27,7 +27,6 @@ import org.apache.spark.sql.execution.datasources.WriteTaskStats
 import org.apache.spark.sql.expressions.UserDefinedFunction
 import org.apache.spark.sql.expressions.Window
 import org.apache.spark.sql.functions._
-import org.apache.spark.sql.types.IntegerType
 import org.apache.spark.sql.types.StringType
 import org.apache.spark.sql.types.StructField
 import org.apache.spark.sql.types.StructType
@@ -61,7 +60,6 @@ object HudiRollupDataWriter extends RollupDataWriter {
       .add(StructField("_hoodie_record_key", StringType, nullable = false))
       .add(StructField("_hoodie_partition_path", StringType, nullable = false))
       .add(StructField("_hoodie_file_name", StringType, nullable = false))
-      .add(StructField("part_id", IntegerType, nullable = false))
 
     val filesAndStats =
       internalWrite(tableId, hudiSchema, hudiData, tableChanges, statsTrackers)
@@ -90,10 +88,6 @@ object HudiRollupDataWriter extends RollupDataWriter {
       extendedData: DataFrame,
       commitTime: String): DataFrame = {
 
-    val generateToken = udf((rank: Int) => {
-      s"$rank-${rank + 13}-0"
-    })
-
     def generateRecordKey(timestamp: String): UserDefinedFunction =
       udf((rank: Int, id: Int) => {
         s"${timestamp}_${rank}_$id"
@@ -104,42 +98,34 @@ object HudiRollupDataWriter extends RollupDataWriter {
         s"${timestamp}_${rank}_$id"
       })
 
+    def generateFilename(timestamp: String): UserDefinedFunction =
+      udf((uuid: String, rank: Int) => {
+        val token = s"$rank-${rank + 13}-0"
+        s"$uuid-0_${token}_$timestamp.parquet"
+      })
+
     val windowSpec = Window.orderBy("_qbeastCubeToRollup")
     val windowSpecGroup = Window.partitionBy("_qbeastCubeToRollup").orderBy("_qbeastCubeToRollup")
 
-    val repartData = extendedData.repartition(col(QbeastColumns.cubeToRollupColumnName))
-
-    val df = repartData
-      .withColumn("_token", generateToken(dense_rank().over(windowSpec) - 1))
+    extendedData
+      .withColumn("_UUID_group", dense_rank().over(windowSpec) - 1)
       .withColumn("_hoodie_commit_time", lit(commitTime))
       .withColumn(
         "_hoodie_commit_seqno",
         generateCommitSeqno(commitTime)(
-          dense_rank().over(windowSpec) - 1,
-          row_number().over(windowSpec) - 1))
+          col("_UUID_group"),
+          row_number().over(windowSpecGroup) - 1))
       .withColumn(
         "_hoodie_record_key",
-        generateRecordKey(commitTime)(
-          dense_rank().over(windowSpec) - 1,
-          row_number().over(windowSpecGroup) - 1))
+        generateRecordKey(commitTime)(col("_UUID_group"), row_number().over(windowSpecGroup) - 1))
       .withColumn("_hoodie_partition_path", lit(""))
       .withColumn(
         "_hoodie_file_name",
-        concat(
+        generateFilename(commitTime)(
           col(QbeastColumns.cubeToRollupColumnName),
-          lit("-0_"),
-          col("_token"),
-          lit("_"),
-          lit(commitTime),
-          lit(".parquet")))
-      .withColumn("part_id", spark_partition_id())
+          col("_UUID_group")))
       .withColumn(QbeastColumns.cubeToRollupFileName, col("_hoodie_file_name"))
-      .drop("_token")
-
-    df.select("_hoodie_record_key", "id", "part_id").show(1000, truncate = false)
-
-    df
-
+      .drop("_UUID_group")
   }
 
 }

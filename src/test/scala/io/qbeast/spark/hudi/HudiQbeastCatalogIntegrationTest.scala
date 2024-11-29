@@ -113,7 +113,7 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
   }
 
   val hudiSparkConf: SparkConf = new SparkConf()
-    .setMaster("local[*]")
+    .setMaster("local[8]")
     .set("spark.sql.extensions", "io.qbeast.sql.HudiQbeastSparkSessionExtension")
     .set("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
     .set("spark.kryo.registrator", "org.apache.spark.HoodieSparkKryoRegistrar")
