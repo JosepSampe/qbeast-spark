@@ -195,13 +195,8 @@ private[hudi] case class HudiMetadataWriter(
 
   private def createHoodieClient(): SparkRDDWriteClient[_] = {
 
-    val optParams =
-      if (qbeastOptions.mergeSchema.contains("true"))
-        qbeastOptions.extraOptions ++ Map(SET_NULL_FOR_MISSING_COLUMNS.key -> "true")
-      else qbeastOptions.extraOptions
-
     val (parameters, hoodieConfig) = mergeParamsAndGetHoodieConfig(
-      optParams,
+      qbeastOptions.extraOptions,
       metaClient.getTableConfig,
       if (isOverwriteOperation) SaveMode.Overwrite else SaveMode.Append)
 

@@ -419,12 +419,13 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
         "hoodie.metadata.enable" -> "true",
         "hoodie.file.index.enable" -> "true",
         // "hoodie.metadata.index.bloom.filter.enable" -> "true",
-        // "hoodie.metadata.record.index.enable" -> "true"
+        // "hoodie.metadata.record.index.enable" -> "true",
+        "hoodie.populate.meta.fields" -> "false",
         "hoodie.metadata.index.column.stats.enable" -> "true")
 
       val tableFormat = "qbeast"
 
-      val data = createTestData(spark, 1000)
+      val data = createTestData(spark, 500)
       data.write
         .format(tableFormat)
         .mode("overwrite")
@@ -435,7 +436,7 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
       spark.read
         .format("hudi")
         .load(basePath)
-        .show(500, false)
+        .show(500, truncate = false)
 
 //      val data2 = createTestData(spark, 500)
 //      data2.write
