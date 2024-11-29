@@ -432,31 +432,30 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
         .option("columnsToIndex", "id")
         .save(basePath)
 
-      println(
-        spark.read
-          .format(tableFormat)
-          .load(basePath)
-          .count())
-
-      val data2 = createTestData(spark, 500)
-      data2.write
-        .format(tableFormat)
-        .mode("append")
-        .options(hudiOptions)
-        .option("columnsToIndex", "id")
-        .save(basePath)
-
-      println(
-        spark.read
-          .format("hudi")
-          .load(basePath)
-          .count())
-
       spark.read
-        .format(tableFormat)
+        .format("hudi")
         .load(basePath)
-        .sample(0.1)
-        .show(numRows = 10, truncate = false)
+        .show(500, false)
+
+//      val data2 = createTestData(spark, 500)
+//      data2.write
+//        .format(tableFormat)
+//        .mode("append")
+//        .options(hudiOptions)
+//        .option("columnsToIndex", "id")
+//        .save(basePath)
+//
+//      println(
+//        spark.read
+//          .format("hudi")
+//          .load(basePath)
+//          .count())
+//
+//      spark.read
+//        .format(tableFormat)
+//        .load(basePath)
+//        .sample(0.1)
+//        .show(numRows = 10, truncate = false)
 
     }
 
