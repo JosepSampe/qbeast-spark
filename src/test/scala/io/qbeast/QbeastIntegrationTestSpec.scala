@@ -136,7 +136,7 @@ trait QbeastIntegrationTestSpec extends AnyFlatSpec with Matchers with DatasetCo
     try {
       testCode(directory.toString)
     } finally {
-      removeDirectory(directory.toString)
+      // removeDirectory(directory.toString)
     }
   }
 

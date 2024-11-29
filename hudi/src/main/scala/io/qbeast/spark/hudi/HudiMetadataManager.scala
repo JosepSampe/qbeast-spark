@@ -25,6 +25,7 @@ import org.apache.hudi.common.model.HoodieFileFormat
 import org.apache.hudi.common.model.HoodieTableType
 import org.apache.hudi.common.model.HoodieTimelineTimeZone
 import org.apache.hudi.common.table.HoodieTableMetaClient
+import org.apache.hudi.config.HoodieWriteConfig
 import org.apache.hudi.hadoop.fs.HadoopFSUtils
 import org.apache.spark.api.java.JavaSparkContext
 import org.apache.spark.sql.types.StructType
@@ -50,11 +51,19 @@ object HudiMetadataManager extends MetadataManager {
       mode: String)(
       writer: String => (TableChanges, IISeq[IndexFile], IISeq[DeleteFile])): Unit = {
 
-    if (!existsLog(tableID)) createTable(tableID, options.extraOptions)
+    // Hudi requires the table name to be set. For now in here we obtain the table name from the path
+    val extraOptions =
+      if (!options.extraOptions.contains(HoodieWriteConfig.TBL_NAME.key))
+        options.extraOptions ++ Map(
+          HoodieWriteConfig.TBL_NAME.key -> Paths.get(tableID.id).getFileName.toString)
+      else options.extraOptions
+    val newOptions = options.copy(extraOptions = extraOptions)
+
+    if (!existsLog(tableID)) createTable(tableID, newOptions.extraOptions)
 
     val metaClient = loadMetaClient(tableID)
     val metadataWriter =
-      HudiMetadataWriter(tableID, mode, metaClient, options, schema)
+      HudiMetadataWriter(tableID, mode, metaClient, newOptions, schema)
 
     metadataWriter.writeWithTransaction(writer)
   }
@@ -166,7 +175,6 @@ object HudiMetadataManager extends MetadataManager {
       .setKeyGeneratorClassProp("org.apache.hudi.keygen.NonpartitionedKeyGenerator")
       .setDatabaseName("")
       .setPartitionFields("")
-      .setTableName(Paths.get(tableID.id).getFileName.toString)
       .fromProperties(properties)
       .initTable(storageConfig, tableID.id)
   }
