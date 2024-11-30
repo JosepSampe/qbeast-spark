@@ -54,6 +54,7 @@ import org.apache.spark.SparkConf
 
 import java.nio.file.Paths
 import java.util
+import java.util.UUID
 import scala.collection.JavaConverters._
 import scala.util.Random
 
@@ -74,7 +75,7 @@ object HudiUtils {
 
 }
 
-case class Student(id: Int, name: String, age: Int)
+case class Student(id: String, name: String, age: Int)
 
 object StudentGenerator {
 
@@ -84,9 +85,10 @@ object StudentGenerator {
   // Method to generate a configurable number of students
   def generateStudents(count: Int): Seq[Student] = {
     1.to(count).map { i =>
+      val id = UUID.randomUUID().toString
       val name = names(Random.nextInt(names.length)) // Randomly select a name from the list
       val age = Random.nextInt(30) + 18 // Random age between 18 and 47
-      Student(i, name, age)
+      Student(id, name, age)
     }
   }
 
@@ -415,7 +417,9 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
       removeDirectory(basePath)
 
       val hudiOptions = Map(
+        "columnsToIndex" -> "id",
         "hoodie.table.name" -> tableName,
+        "hoodie.table.recordkey.fields" -> "id",
         "hoodie.metadata.enable" -> "true",
         "hoodie.file.index.enable" -> "true",
         // "hoodie.metadata.index.bloom.filter.enable" -> "true",
@@ -425,25 +429,23 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
 
       val tableFormat = "qbeast"
 
-      val data = createTestData(spark, 500)
+      val data = createTestData(spark, 1000)
       data.write
         .format(tableFormat)
         .mode("overwrite")
         .options(hudiOptions)
-        .option("columnsToIndex", "id")
         .save(basePath)
 
       spark.read
         .format("hudi")
         .load(basePath)
-        .show(500, truncate = false)
+        .show(10, truncate = false)
 
 //      val data2 = createTestData(spark, 500)
 //      data2.write
 //        .format(tableFormat)
 //        .mode("append")
 //        .options(hudiOptions)
-//        .option("columnsToIndex", "id")
 //        .save(basePath)
 //
 //      println(

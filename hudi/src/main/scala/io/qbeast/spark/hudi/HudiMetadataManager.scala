@@ -27,7 +27,6 @@ import org.apache.hudi.common.model.HoodieTimelineTimeZone
 import org.apache.hudi.common.table.HoodieTableMetaClient
 import org.apache.hudi.config.HoodieWriteConfig
 import org.apache.hudi.hadoop.fs.HadoopFSUtils
-import org.apache.spark.api.java.JavaSparkContext
 import org.apache.spark.sql.types.StructType
 import org.apache.spark.sql.SaveMode
 import org.apache.spark.sql.SparkSession
@@ -36,11 +35,10 @@ import java.nio.file.Paths
 import scala.jdk.CollectionConverters.mapAsJavaMapConverter
 
 /**
- * Spark+Delta implementation of the MetadataManager interface
+ * Spark+Hudi implementation of the MetadataManager interface
  */
 object HudiMetadataManager extends MetadataManager {
 
-  private val jsc = new JavaSparkContext(SparkSession.active.sparkContext)
   private val spark = SparkSession.active
   private val hadoopConf = spark.sparkContext.hadoopConfiguration
 
@@ -107,7 +105,7 @@ object HudiMetadataManager extends MetadataManager {
   private def loadMetaClient(tableID: QTableID): HoodieTableMetaClient = {
     HoodieTableMetaClient
       .builder()
-      .setConf(HadoopFSUtils.getStorageConfWithCopy(jsc.hadoopConfiguration()))
+      .setConf(HadoopFSUtils.getStorageConfWithCopy(hadoopConf))
       .setBasePath(tableID.id)
       .build()
   }
@@ -159,7 +157,7 @@ object HudiMetadataManager extends MetadataManager {
    *   Table ID
    */
   private def createTable(tableID: QTableID, tableConfigs: Map[String, String]): Unit = {
-    val storageConfig = HadoopFSUtils.getStorageConfWithCopy(jsc.hadoopConfiguration())
+    val storageConfig = HadoopFSUtils.getStorageConfWithCopy(hadoopConf)
     val properties = TypedProperties.fromMap(tableConfigs.asJava)
 
     HoodieTableMetaClient

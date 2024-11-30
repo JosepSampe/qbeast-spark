@@ -31,6 +31,7 @@ import org.apache.spark.sql.types.StringType
 import org.apache.spark.sql.types.StructField
 import org.apache.spark.sql.types.StructType
 import org.apache.spark.sql.DataFrame
+import org.apache.spark.sql.SparkSession
 
 import java.util.UUID
 import scala.collection.mutable
@@ -104,11 +105,22 @@ object HudiRollupDataWriter extends RollupDataWriter {
         s"$uuid-0_${token}_$timestamp.parquet"
       })
 
-    val windowSpec = Window.orderBy("_qbeastCubeToRollup")
+    val distinctValues = extendedData
+      .select("_qbeastCubeToRollup")
+      .distinct()
+      .collect()
+      .map(_.getString(0))
+      .zipWithIndex
+      .toMap
+
+    val mappingBroadcast = SparkSession.active.sparkContext.broadcast(distinctValues)
+    val assignIdUDF = udf((value: String) => mappingBroadcast.value.getOrElse(value, -1))
+    val dfWithIds =
+      extendedData.withColumn("_UUID_group", assignIdUDF(col("_qbeastCubeToRollup")))
+
     val windowSpecGroup = Window.partitionBy("_qbeastCubeToRollup").orderBy("_qbeastCubeToRollup")
 
-    extendedData
-      .withColumn("_UUID_group", dense_rank().over(windowSpec) - 1)
+    dfWithIds
       .withColumn("_hoodie_commit_time", lit(commitTime))
       .withColumn(
         "_hoodie_commit_seqno",
@@ -126,6 +138,7 @@ object HudiRollupDataWriter extends RollupDataWriter {
           col("_UUID_group")))
       .withColumn(QbeastColumns.cubeToRollupFileName, col("_hoodie_file_name"))
       .drop("_UUID_group")
+
   }
 
 }
