@@ -90,18 +90,18 @@ object HudiRollupDataWriter extends RollupDataWriter {
       commitTime: String): DataFrame = {
 
     def generateRecordKey(timestamp: String): UserDefinedFunction =
-      udf((rank: Int, id: Int) => {
-        s"${timestamp}_${rank}_$id"
+      udf((groupdID: Int, id: Int) => {
+        s"${timestamp}_${groupdID}_$id"
       })
 
     def generateCommitSeqno(timestamp: String): UserDefinedFunction =
-      udf((rank: Int, id: Int) => {
-        s"${timestamp}_${rank}_$id"
+      udf((groupdID: Int, id: Int) => {
+        s"${timestamp}_${groupdID}_$id"
       })
 
     def generateFilename(timestamp: String): UserDefinedFunction =
-      udf((uuid: String, rank: Int) => {
-        val token = s"$rank-${rank + 13}-0"
+      udf((uuid: String, groupdID: Int) => {
+        val token = s"$groupdID-${groupdID + 13}-0"
         s"$uuid-0_${token}_$timestamp.parquet"
       })
 
