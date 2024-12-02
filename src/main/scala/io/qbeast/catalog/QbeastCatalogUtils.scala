@@ -255,12 +255,15 @@ object QbeastCatalogUtils extends Logging {
       .orElse(existingTableOpt.flatMap(_.storage.locationUri))
       .getOrElse(existingSessionCatalog.defaultTablePath(id))
 
+    // Set the table name
+    val props = properties ++ Map("hoodie.table.name" -> ident.name())
+
     // Process the parameters/options/configuration sent to the table
     val qTableID = QTableID(loc.toString)
     val indexedTable = tableFactory.getIndexedTable(qTableID)
     val newProperties =
-      if (!indexedTable.exists) indexedTable.selectColumnsToIndex(properties, dataFrame)
-      else properties
+      if (!indexedTable.exists) indexedTable.selectColumnsToIndex(props, dataFrame)
+      else props
     val allProperties = indexedTable.verifyAndMergeProperties(newProperties)
 
     // Initialize the path option

@@ -17,7 +17,6 @@ package io.qbeast.catalog
 
 import org.apache.spark.sql.connector.catalog.Column
 import org.apache.spark.sql.connector.catalog.Identifier
-import org.apache.spark.sql.connector.catalog.SparkCatalogV2Util
 import org.apache.spark.sql.connector.catalog.StagedTable
 import org.apache.spark.sql.connector.catalog.SupportsWrite
 import org.apache.spark.sql.connector.catalog.Table
@@ -28,6 +27,8 @@ import org.apache.spark.sql.connector.write.LogicalWriteInfo
 import org.apache.spark.sql.connector.write.WriteBuilder
 import org.apache.spark.sql.types.StructType
 import org.apache.spark.sql.AnalysisExceptionFactory
+
+import scala.annotation.nowarn
 
 /**
  * A default StagedTable This case class would delegate the methods to the underlying Catalog
@@ -60,7 +61,8 @@ private[catalog] case class DefaultStagedTable(
 
   override def name(): String = ident.name()
 
-  override def schema(): StructType = SparkCatalogV2Util.v2ColumnsToStructType(columns())
+  @nowarn("msg=method schema in trait Table is deprecated")
+  override def schema(): StructType = table.schema()
 
   override def columns(): Array[Column] = table.columns()
 

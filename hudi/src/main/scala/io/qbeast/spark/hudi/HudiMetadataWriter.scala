@@ -542,7 +542,7 @@ private[hudi] case class HudiMetadataWriter(
   private def addSchemaEvolutionParameters(
       parameters: Map[String, String],
       internalSchemaOpt: scala.Option[InternalSchema],
-      writeSchemaOpt: scala.Option[Schema] = None): Map[String, String] = {
+      writeSchemaOpt: scala.Option[Schema]): Map[String, String] = {
     val schemaEvolutionEnable = if (internalSchemaOpt.isDefined) "true" else "false"
 
     val schemaValidateEnable =

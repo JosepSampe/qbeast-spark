@@ -30,7 +30,8 @@ import org.apache.spark.sql.connector.catalog.functions.UnboundFunction
 import org.apache.spark.sql.connector.catalog.TableChange.RemoveProperty
 import org.apache.spark.sql.connector.catalog.TableChange.SetProperty
 import org.apache.spark.sql.connector.expressions.Transform
-import org.apache.spark.sql.delta.catalog.DeltaCatalog
+//import org.apache.spark.sql.delta.catalog.DeltaCatalog
+import org.apache.spark.sql.hudi.catalog.HoodieCatalog
 import org.apache.spark.sql.types.StructType
 import org.apache.spark.sql.util.CaseInsensitiveStringMap
 import org.apache.spark.sql.SparkCatalogUtils
@@ -54,7 +55,7 @@ class QbeastCatalog[T <: TableCatalog with SupportsNamespaces with FunctionCatal
 
   private val tableFactory = QbeastContext.indexedTableFactory
 
-  private val deltaCatalog: DeltaCatalog = new DeltaCatalog()
+  private val deltaCatalog: HoodieCatalog = new HoodieCatalog()
 
   private var delegatedCatalog: CatalogPlugin = null
 
@@ -88,6 +89,7 @@ class QbeastCatalog[T <: TableCatalog with SupportsNamespaces with FunctionCatal
   private def getSessionCatalog(properties: Map[String, String] = Map.empty): T = {
     properties.get("provider") match {
       case Some("delta") => deltaCatalog.asInstanceOf[T]
+      case Some("hudi") => deltaCatalog.asInstanceOf[T]
       case _ => getDelegatedCatalog
     }
   }
