@@ -427,7 +427,7 @@ private[hudi] case class HudiMetadataWriter(
         DeleteFile(
           path = indexFile.path,
           size = indexFile.size,
-          dataChange = false,
+          dataChange = true,
           deletionTimestamp = currentTimeMillis())
       }.toIndexedSeq
     } else deleteFiles
