@@ -33,6 +33,8 @@ import org.apache.spark.sql.AnalysisExceptionFactory
 import org.apache.spark.sql.Row
 import org.apache.spark.sql.SparkSession
 
+import java.nio.file.Paths
+
 case class ConvertToQbeastCommand(
     identifier: String,
     columnsToIndex: Seq[String],
@@ -90,12 +92,14 @@ case class ConvertToQbeastCommand(
               }
             case "hudi" =>
               try {
+
                 spark.read
                   .format("parquet")
                   .load(qTableID.id)
                   .write
                   .format("hudi")
                   .mode("append")
+                  .option("hoodie.table.name", Paths.get(qTableID.id).getFileName.toString)
                   .save(qTableID.id + "/hudi")
               } catch {
                 case e: Exception =>
@@ -129,6 +133,16 @@ case class ConvertToQbeastCommand(
     }
 
     Seq.empty[Row]
+  }
+
+  def getTableLocation(spark: SparkSession): String = {
+    val (_, tableId) = resolveTableFormat(spark)
+    val qTableID = QTableID(tableId.table)
+
+    DEFAULT_TABLE_FORMAT match {
+      case "delta" => qTableID.id
+      case "hudi" => qTableID + "/hudi"
+    }
   }
 
 }

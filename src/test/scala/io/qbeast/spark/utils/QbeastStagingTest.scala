@@ -22,7 +22,7 @@ import io.qbeast.TestClasses.T2
 import org.apache.spark.qbeast.config.DEFAULT_TABLE_FORMAT
 import org.apache.spark.sql.SparkSession
 
-class QbeastDeltaStagingTest extends QbeastIntegrationTestSpec with StagingUtils {
+class QbeastStagingTest extends QbeastIntegrationTestSpec with StagingUtils {
   val columnsToIndex: Seq[String] = Seq("a", "b")
   val qDataSize = 10000
   val dDataSize = 10000
@@ -54,8 +54,8 @@ class QbeastDeltaStagingTest extends QbeastIntegrationTestSpec with StagingUtils
     writeHybridTable(spark, tmpDir)
 
     val qbeastDf = spark.read.format("qbeast").load(tmpDir)
-    val deltaDf = spark.read.format(DEFAULT_TABLE_FORMAT).load(tmpDir)
-    assertLargeDatasetEquality(qbeastDf, deltaDf)
+    val tableDf = spark.read.format(DEFAULT_TABLE_FORMAT).load(tmpDir)
+    assertLargeDatasetEquality(qbeastDf, tableDf)
 
     // Should have the staging revision and the first revision
     val qbeastSnapshot = getQbeastSnapshot(tmpDir)
@@ -73,10 +73,10 @@ class QbeastDeltaStagingTest extends QbeastIntegrationTestSpec with StagingUtils
 
       // DataFrame should not change by optimizing the staging revision
       val qbeastDf = spark.read.format("qbeast").load(tmpDir)
-      val deltaDf = spark.read.format(DEFAULT_TABLE_FORMAT).load(tmpDir)
-      qbeastDf.count() shouldBe deltaDf.count()
+      val tableDf = spark.read.format(DEFAULT_TABLE_FORMAT).load(tmpDir)
+      qbeastDf.count() shouldBe tableDf.count()
 
-      assertLargeDatasetEquality(qbeastDf, deltaDf)
+      assertLargeDatasetEquality(qbeastDf, tableDf)
 
       // Should preserve standing staging revision behavior
       val qbeastSnapshot = getQbeastSnapshot(tmpDir)
