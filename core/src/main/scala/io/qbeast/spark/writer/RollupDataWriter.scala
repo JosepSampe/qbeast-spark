@@ -37,10 +37,10 @@ import scala.collection.mutable
  */
 trait RollupDataWriter extends DataWriter {
 
+  type ProcessRows = (InternalRow, String) => (InternalRow, String)
   private type GetCubeMaxWeight = CubeId => Weight
   private type Extract = InternalRow => (InternalRow, Weight, CubeId, String)
   private type WriteRows = Iterator[InternalRow] => Iterator[(IndexFile, TaskStats)]
-  type ProcessRows = (InternalRow, String) => (InternalRow, String)
 
   protected def doWrite(
       tableId: QTableID,
@@ -112,9 +112,10 @@ trait RollupDataWriter extends DataWriter {
     extendedRow => {
       val fileUUID = extendedRow.getString(qbeastColumns.fileUUIDColumnIndex)
       val row = InternalRow.fromSeq(extractors.map(_.apply(extendedRow)))
-      val (processedRow, filename) = processRow
-        .map(_.apply(row, fileUUID))
-        .getOrElse((row, s"$fileUUID.parquet"))
+      val (processedRow, filename) = processRow match {
+        case Some(func) => func(row, fileUUID)
+        case None => (row, s"$fileUUID.parquet")
+      }
       val weight = Weight(extendedRow.getInt(qbeastColumns.weightColumnIndex))
       val cubeIdBytes = extendedRow.getBinary(qbeastColumns.cubeColumnIndex)
       val cubeId = revision.createCubeId(cubeIdBytes)

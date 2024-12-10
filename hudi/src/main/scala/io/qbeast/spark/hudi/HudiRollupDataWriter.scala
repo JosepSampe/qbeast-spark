@@ -62,9 +62,6 @@ object HudiRollupDataWriter extends RollupDataWriter {
       .map(StructField(_, StringType, nullable = false))
     val hudiSchema = StructType(newColumns ++ schema.fields)
 
-    // This function adds the columns required by Hudi to the given row,
-    // as specified in the extended schema, and returns a tuple containing
-    // the modified row and the corresponding target filename.
     val processRow = getProcessRow(schema, commitTime)
 
     val filesAndStats =
@@ -75,6 +72,9 @@ object HudiRollupDataWriter extends RollupDataWriter {
   }
 
   private def getProcessRow(schema: StructType, commitTime: String): ProcessRows = {
+    // This function adds the columns required by Hudi to the given row,
+    // as specified in the extended schema, and returns a tuple containing
+    // the modified row and the corresponding target filename.
     (row: InternalRow, fileUUID: String) =>
       {
         val partitionId = TaskContext.getPartitionId()
