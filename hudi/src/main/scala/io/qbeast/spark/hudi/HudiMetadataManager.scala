@@ -120,7 +120,8 @@ object HudiMetadataManager extends MetadataManager {
    */
   override def existsLog(tableID: QTableID): Boolean = {
     val hoodiePath = new Path(tableID.id, HoodieTableMetaClient.METAFOLDER_NAME)
-    FileSystem.get(hadoopConf).exists(hoodiePath)
+    val filesystem = FileSystem.get(new java.net.URI(tableID.id), hadoopConf)
+    filesystem.exists(hoodiePath)
   }
 
   /**
@@ -132,7 +133,8 @@ object HudiMetadataManager extends MetadataManager {
   override def createLog(tableID: QTableID): Unit = {
     if (!existsLog(tableID)) {
       val hoodiePath = new Path(tableID.id, HoodieTableMetaClient.METAFOLDER_NAME)
-      FileSystem.get(hadoopConf).mkdirs(hoodiePath)
+      val filesystem = FileSystem.get(new java.net.URI(tableID.id), hadoopConf)
+      filesystem.mkdirs(hoodiePath)
     }
   }
 

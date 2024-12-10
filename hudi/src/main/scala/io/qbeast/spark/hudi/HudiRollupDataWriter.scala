@@ -16,22 +16,22 @@
 package io.qbeast.spark.hudi
 
 import io.qbeast.core.model._
-import io.qbeast.spark.index.QbeastColumns
 import io.qbeast.spark.writer.RollupDataWriter
 import io.qbeast.spark.writer.StatsTracker
 import io.qbeast.spark.writer.TaskStats
 import io.qbeast.IISeq
+import org.apache.hudi.common.fs.FSUtils
+import org.apache.hudi.common.model.HoodieRecord
+import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.execution.datasources.BasicWriteTaskStats
 import org.apache.spark.sql.execution.datasources.WriteJobStatsTracker
 import org.apache.spark.sql.execution.datasources.WriteTaskStats
-import org.apache.spark.sql.expressions.UserDefinedFunction
-import org.apache.spark.sql.expressions.Window
-import org.apache.spark.sql.functions._
 import org.apache.spark.sql.types.StringType
 import org.apache.spark.sql.types.StructField
 import org.apache.spark.sql.types.StructType
 import org.apache.spark.sql.DataFrame
-import org.apache.spark.sql.SparkSession
+import org.apache.spark.unsafe.types.UTF8String
+import org.apache.spark.TaskContext
 
 /**
  * Delta implementation of DataWriter that applies rollup to compact the files.
@@ -50,23 +50,59 @@ object HudiRollupDataWriter extends RollupDataWriter {
     val statsTrackers = StatsTracker.getStatsTrackers
 
     val extendedData = extendDataWithFileUUID(data, tableChanges)
-    val hudiData = extendDataWithHudiColumns(extendedData, commitTime)
 
-    val hudiSchema = schema
-      .add(StructField("_hoodie_commit_time", StringType, nullable = false))
-      .add(StructField("_hoodie_commit_seqno", StringType, nullable = false))
-      .add(StructField("_hoodie_record_key", StringType, nullable = false))
-      .add(StructField("_hoodie_partition_path", StringType, nullable = false))
-      .add(StructField("_hoodie_file_name", StringType, nullable = false))
+    // Add the required Hudi metadata columns to the schema and create an extended schema
+    // by appending them to the original schema fields.
+    val newColumns = Seq(
+      HoodieRecord.COMMIT_TIME_METADATA_FIELD,
+      HoodieRecord.COMMIT_SEQNO_METADATA_FIELD,
+      HoodieRecord.RECORD_KEY_METADATA_FIELD,
+      HoodieRecord.PARTITION_PATH_METADATA_FIELD,
+      HoodieRecord.FILENAME_METADATA_FIELD)
+      .map(StructField(_, StringType, nullable = false))
+    val hudiSchema = StructType(newColumns ++ schema.fields)
+
+    // This function adds the columns required by Hudi to the given row,
+    // as specified in the extended schema, and returns a tuple containing
+    // the modified row and the corresponding target filename.
+    val processRow = getProcessRow(schema, commitTime)
 
     val filesAndStats =
-      doWrite(tableId, hudiSchema, hudiData, tableChanges, statsTrackers)
+      doWrite(tableId, hudiSchema, extendedData, tableChanges, statsTrackers, Some(processRow))
     val stats = filesAndStats.map(_._2)
-
     processStats(stats, statsTrackers)
+    filesAndStats.map(_._1)
+  }
 
-    filesAndStats
-      .map(_._1)
+  private def getProcessRow(schema: StructType, commitTime: String): ProcessRows = {
+    (row: InternalRow, fileUUID: String) =>
+      {
+        val partitionId = TaskContext.getPartitionId()
+        val stageId = TaskContext.get.stageId()
+        val taskAttemptId = TaskContext.get.taskAttemptId()
+
+        val writeToken = FSUtils.makeWriteToken(partitionId, stageId, taskAttemptId)
+        val fileName = FSUtils.makeBaseFileName(commitTime, writeToken, fileUUID, ".parquet")
+
+        val groupID = 0
+        val rowID = 0
+
+        val commitSeqno = s"$commitTime-seq-$groupID-$rowID"
+        val recordKey = s"$commitTime-key-$groupID-$rowID"
+
+        // Construct the processed row with the necessary columns
+        val processedRow = InternalRow.fromSeq(
+          Seq(
+            UTF8String.fromString(commitTime), // _hoodie_commit_time
+            UTF8String.fromString(commitSeqno), // _hoodie_commit_seqno
+            UTF8String.fromString(recordKey), // _hoodie_record_key
+            UTF8String.fromString(""), // _hoodie_partition_path
+            UTF8String.fromString(fileName) // _hoodie_file_name
+          ) ++ row.toSeq(schema))
+
+        // Return processed row along with the file name
+        (processedRow, fileName)
+      }
   }
 
   private def processStats(
@@ -80,62 +116,6 @@ object HudiRollupDataWriter extends RollupDataWriter {
     })
     val basicStats = basicStatsBuilder.result()
     statsTrackers.foreach(_.processStats(basicStats, endTime))
-  }
-
-  private def extendDataWithHudiColumns(
-      extendedData: DataFrame,
-      commitTime: String): DataFrame = {
-
-    def generateRecordKey(timestamp: String): UserDefinedFunction =
-      udf((groupdID: Int, rowId: Int) => {
-        s"${timestamp}_${groupdID}_$rowId"
-      })
-
-    def generateCommitSeqno(timestamp: String): UserDefinedFunction =
-      udf((groupdID: Int, rowId: Int) => {
-        s"${timestamp}_${groupdID}_$rowId"
-      })
-
-    def generateFilename(timestamp: String): UserDefinedFunction =
-      udf((uuid: String, groupdID: Int) => {
-        val token = s"$groupdID-${groupdID + 13}-0"
-        s"$uuid-0_${token}_$timestamp.parquet"
-      })
-
-    val distinctValues = extendedData
-      .select(col(QbeastColumns.fileUUIDColumnName))
-      .distinct()
-      .collect()
-      .map(_.getString(0))
-      .zipWithIndex
-      .toMap
-
-    val mappingBroadcast = SparkSession.active.sparkContext.broadcast(distinctValues)
-    val assignRowGroupUDF = udf((value: String) => mappingBroadcast.value.getOrElse(value, -1))
-
-    val windowSpecGroup = Window
-      .partitionBy(col(QbeastColumns.fileUUIDColumnName))
-      .orderBy(col(QbeastColumns.fileUUIDColumnName))
-
-    val dfWithIds =
-      extendedData
-        .withColumn("_ROW_GROUP", assignRowGroupUDF(col(QbeastColumns.fileUUIDColumnName)))
-        .withColumn("_ROW_NUM", row_number().over(windowSpecGroup) - 1)
-
-    dfWithIds
-      .withColumn("_hoodie_commit_time", lit(commitTime))
-      .withColumn(
-        "_hoodie_commit_seqno",
-        generateCommitSeqno(commitTime)(col("_ROW_GROUP"), col("_ROW_NUM")))
-      .withColumn(
-        "_hoodie_record_key",
-        generateRecordKey(commitTime)(col("_ROW_GROUP"), col("_ROW_NUM")))
-      .withColumn("_hoodie_partition_path", lit(""))
-      .withColumn(
-        "_hoodie_file_name",
-        generateFilename(commitTime)(col(QbeastColumns.fileUUIDColumnName), col("_ROW_GROUP")))
-      .withColumn(QbeastColumns.filenameColumnName, col("_hoodie_file_name"))
-      .drop("_ROW_GROUP", "_ROW_NUM")
   }
 
 }
