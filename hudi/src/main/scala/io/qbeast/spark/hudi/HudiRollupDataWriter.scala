@@ -77,8 +77,6 @@ object HudiRollupDataWriter extends RollupDataWriter {
     // as specified in the extended schema, and returns a tuple containing
     // the modified row and the corresponding target filename.
 
-    println("THIS IS 0.8.1")
-
     val fileExtension = HoodieFileFormat.PARQUET.getFileExtension
 
     (row: InternalRow, fileUUID: String) => {
