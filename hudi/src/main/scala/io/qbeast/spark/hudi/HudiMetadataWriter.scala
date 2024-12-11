@@ -56,6 +56,7 @@ import org.apache.hudi.internal.schema.InternalSchema
 import org.apache.hudi.metadata.HoodieBackedTableMetadata
 import org.apache.hudi.metadata.HoodieTableMetadata
 import org.apache.hudi.storage.StoragePath
+import org.apache.hudi.table.action.HoodieWriteMetadata
 import org.apache.hudi.table.HoodieSparkTable
 import org.apache.hudi.AvroConversionUtils
 import org.apache.hudi.AvroConversionUtils.getAvroRecordNameAndNamespace
@@ -67,6 +68,7 @@ import org.apache.hudi.DataSourceWriteOptions._
 import org.apache.hudi.HoodieConversionUtils.toScalaOption
 import org.apache.hudi.HoodieSchemaUtils
 import org.apache.hudi.HoodieWriterUtils
+import org.apache.spark.api.java.JavaRDD
 import org.apache.spark.api.java.JavaSparkContext
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.types.StructType
@@ -228,10 +230,6 @@ private[hudi] case class HudiMetadataWriter(
       internalSchemaOpt,
       Some(writerSchema)) - HoodieWriteConfig.AUTO_COMMIT_ENABLE.key
 
-    // Check if it is necessary in hudi
-//    val statsTrackers = createStatsTrackers()
-//    registerStatsTrackers(statsTrackers)
-
     DataSourceUtils.createHoodieClient(
       jsc,
       writerSchema.toString,
@@ -258,6 +256,7 @@ private[hudi] case class HudiMetadataWriter(
     val instantTime = HoodieActiveTimeline.createNewInstantTime
     hudiClient.startCommitWithTime(instantTime, commitActionType)
     hudiClient.setOperationType(operationType)
+    hudiClient.preWrite(instantTime, operationType, metaClient)
 
     val hoodieTable = HoodieSparkTable.create(hudiClient.getConfig, hudiClient.getEngineContext)
     val timeLine = hoodieTable.getActiveTimeline
@@ -317,6 +316,10 @@ private[hudi] case class HudiMetadataWriter(
       hudiClient.commit(instantTime, writeStatusRdd, hudi.common.util.Option.of(extraMeta))
     }
 
+    val hoodieWriteMetadata = new HoodieWriteMetadata[JavaRDD[WriteStatus]]
+    hoodieWriteMetadata.setWriteStatuses(writeStatusRdd)
+    val table = hudiClient.initTable(operationType, hudi.common.util.Option.of(instantTime))
+    hudiClient.postWrite(hoodieWriteMetadata, instantTime, table)
   }
 
   def updateMetadataWithTransaction(config: => Configuration, overwrite: Boolean): Unit = {

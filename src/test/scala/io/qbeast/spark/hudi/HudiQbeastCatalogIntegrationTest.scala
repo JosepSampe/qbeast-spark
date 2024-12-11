@@ -418,45 +418,54 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
       val hudiOptions = Map(
         "columnsToIndex" -> "id",
         "hoodie.table.name" -> tableName,
-        "hoodie.table.recordkey.fields" -> "id",
+        // "hoodie.table.recordkey.fields" -> "id",
         "hoodie.metadata.enable" -> "true",
         "hoodie.file.index.enable" -> "true",
         // "hoodie.metadata.index.bloom.filter.enable" -> "true",
         // "hoodie.metadata.record.index.enable" -> "true",
         // "hoodie.populate.meta.fields" -> "false",
-        "hoodie.metadata.index.column.stats.enable" -> "true")
+        "hoodie.metadata.index.column.stats.enable" -> "true"
+        // "hoodie.keep.max.commits" -> "5",
+        // "hoodie.keep.min.commits" -> "1",
+        // "hoodie.clean.automatic" -> "false",
+        // "hoodie.archive.merge.enable" -> "true",
+        // "hoodie.archive.automatic" -> "true",
+        // "hoodie.archive.merge.files.batch.size" -> "20"
+      )
 
       val tableFormat = "qbeast"
 
-      val data = createTestData(spark, 1000)
+      val data = createTestData(spark, 100)
       data.write
         .format(tableFormat)
         .mode("overwrite")
         .options(hudiOptions)
         .save(basePath)
 
-      spark.read
-        .format(tableFormat)
-        .load(basePath)
-        .show(1000, truncate = false)
-
-      spark.read
-        .format("hudi")
-        .load(basePath)
-        .show(1000, truncate = false)
-
-//      val data2 = createTestData(spark, 500)
-//      data2.write
+//      spark.read
 //        .format(tableFormat)
-//        .mode("append")
-//        .options(hudiOptions)
-//        .save(basePath)
+//        .load(basePath)
+//        .show(1000, truncate = false)
 //
-//      println(
-//        spark.read
-//          .format("hudi")
-//          .load(basePath)
-//          .count())
+//      spark.read
+//        .format("hudi")
+//        .load(basePath)
+//        .show(1000, truncate = false)
+
+      (1 to 40).foreach { _ =>
+        val data2 = createTestData(spark, 10)
+        data2.write
+          .format(tableFormat)
+          .mode("append")
+          .options(hudiOptions)
+          .save(basePath)
+      }
+
+      println(
+        spark.read
+          .format(tableFormat)
+          .load(basePath)
+          .count())
 //
 //      spark.read
 //        .format(tableFormat)
