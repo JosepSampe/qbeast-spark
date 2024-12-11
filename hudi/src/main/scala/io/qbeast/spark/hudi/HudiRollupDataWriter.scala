@@ -20,7 +20,8 @@ import io.qbeast.spark.writer.RollupDataWriter
 import io.qbeast.spark.writer.StatsTracker
 import io.qbeast.spark.writer.TaskStats
 import io.qbeast.IISeq
-import org.apache.hudi.common.fs.FSUtils
+import org.apache.hudi.client.model.HoodieInternalRow
+import org.apache.hudi.common.model.HoodieFileFormat
 import org.apache.hudi.common.model.HoodieRecord
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.execution.datasources.BasicWriteTaskStats
@@ -33,10 +34,14 @@ import org.apache.spark.sql.DataFrame
 import org.apache.spark.unsafe.types.UTF8String
 import org.apache.spark.TaskContext
 
+import java.util.concurrent.atomic.AtomicLong
+
 /**
  * Delta implementation of DataWriter that applies rollup to compact the files.
  */
 object HudiRollupDataWriter extends RollupDataWriter {
+
+  val GLOBAL_SEQ_NO = new AtomicLong(1)
 
   override def write(
       tableId: QTableID,
@@ -62,47 +67,76 @@ object HudiRollupDataWriter extends RollupDataWriter {
       .map(StructField(_, StringType, nullable = false))
     val hudiSchema = StructType(newColumns ++ schema.fields)
 
-    val processRow = getProcessRow(schema, commitTime)
+    val processRow = getProcessRow(commitTime)
 
     val filesAndStats =
       doWrite(tableId, hudiSchema, extendedData, tableChanges, statsTrackers, Some(processRow))
+
     val stats = filesAndStats.map(_._2)
     processStats(stats, statsTrackers)
+
     filesAndStats.map(_._1)
   }
 
-  private def getProcessRow(schema: StructType, commitTime: String): ProcessRows = {
+  private def getProcessRow(commitTime: String): ProcessRows = {
     // This function adds the columns required by Hudi to the given row,
     // as specified in the extended schema, and returns a tuple containing
     // the modified row and the corresponding target filename.
-    (row: InternalRow, fileUUID: String) =>
-      {
-        val partitionId = TaskContext.getPartitionId()
-        val stageId = TaskContext.get.stageId()
-        val taskAttemptId = TaskContext.get.taskAttemptId()
 
-        val writeToken = FSUtils.makeWriteToken(partitionId, stageId, taskAttemptId)
-        val fileName = FSUtils.makeBaseFileName(commitTime, writeToken, fileUUID, ".parquet")
+    println("THIS IS 0.8.1")
 
-        val groupID = 0
-        val rowID = 0
+    val fileExtension = HoodieFileFormat.PARQUET.getFileExtension
+    val shouldPreserveHoodieMetadata = false
 
-        val commitSeqno = s"$commitTime-seq-$groupID-$rowID"
-        val recordKey = s"$commitTime-key-$groupID-$rowID"
+    (row: InternalRow, fileUUID: String) => {
 
-        // Construct the processed row with the necessary columns
-        val processedRow = InternalRow.fromSeq(
-          Seq(
-            UTF8String.fromString(commitTime), // _hoodie_commit_time
-            UTF8String.fromString(commitSeqno), // _hoodie_commit_seqno
-            UTF8String.fromString(recordKey), // _hoodie_record_key
-            UTF8String.fromString(""), // _hoodie_partition_path
-            UTF8String.fromString(fileName) // _hoodie_file_name
-          ) ++ row.toSeq(schema))
+      // Hudi classes of interest during the write operation:
+      // DataWritingSparkTask
+      // HoodieBulkInsertDataInternalWriterFactory
+      // HoodieBulkInsertDataInternalWriter
+      // BulkInsertDataInternalWriterHelper
+      // HoodieRowCreateHandle
+      val ctx = TaskContext.get()
+      val partId = ctx.partitionId()
+      val taskId = ctx.taskAttemptId()
 
-        // Return processed row along with the file name
-        (processedRow, fileName)
-      }
+      // Hudi assigns a single UUID for all rows in the same partition and tracks the number
+      // of different files written by that partition. In Qbeast, this number is always 0
+      // because we use a unique file UUID for each file.
+      val fileId = fileUUID + "-0"
+
+      // The write token is a composite string consisting of the current task's partition ID,
+      // task attempt ID, and a task epoch. In Hudi, the task epoch is always 0.
+      val writeToken = partId + "-" + taskId + "-0"
+
+      // The filename is a concatenation of the file ID, the generated write token,
+      // the commit time, and the file format (Parquet in Qbeast).
+      val fileName = fileId + "_" + writeToken + "_" + commitTime + fileExtension
+
+      // Relevant code is in HoodieRowCreateHandle
+      val seqId =
+        if (shouldPreserveHoodieMetadata)
+          row.getUTF8String(HoodieRecord.COMMIT_SEQNO_METADATA_FIELD_ORD)
+        else
+          UTF8String.fromString(commitTime + "_" + partId + "_" + GLOBAL_SEQ_NO.getAndIncrement)
+      val writeCommitTime =
+        if (shouldPreserveHoodieMetadata)
+          row.getUTF8String(HoodieRecord.COMMIT_TIME_METADATA_FIELD_ORD)
+        else UTF8String.fromString(commitTime)
+
+      val recordKey = commitTime + "-" + partId + "-" + 0
+
+      val updatedRow = new HoodieInternalRow(
+        writeCommitTime,
+        seqId,
+        UTF8String.fromString(recordKey),
+        UTF8String.fromString(""),
+        UTF8String.fromString(fileName),
+        row,
+        false)
+
+      (updatedRow, fileName)
+    }
   }
 
   private def processStats(
