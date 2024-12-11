@@ -21,7 +21,6 @@ import io.qbeast.core.model.WriteMode.WriteModeValue
 import io.qbeast.spark.internal.QbeastOptions
 import io.qbeast.spark.utils.MetadataConfig
 import io.qbeast.spark.utils.TagUtils
-import io.qbeast.spark.writer.StatsTracker.registerStatsTrackers
 import io.qbeast.IISeq
 import org.apache.avro.Schema
 import org.apache.hudi
@@ -70,12 +69,9 @@ import org.apache.hudi.HoodieSchemaUtils
 import org.apache.hudi.HoodieWriterUtils
 import org.apache.spark.api.java.JavaSparkContext
 import org.apache.spark.internal.Logging
-import org.apache.spark.sql.execution.datasources.BasicWriteJobStatsTracker
-import org.apache.spark.sql.execution.datasources.WriteJobStatsTracker
 import org.apache.spark.sql.types.StructType
 import org.apache.spark.sql.SaveMode
 import org.apache.spark.sql.SparkSession
-import org.apache.spark.util.SerializableConfiguration
 
 import java.lang.System.currentTimeMillis
 import java.util
@@ -120,21 +116,6 @@ private[hudi] case class HudiMetadataWriter(
   // may not respect nullable very well.
   private val dataSchema: StructType = StructType(schema.fields.map(field =>
     field.copy(nullable = true, dataType = asNullable(field.dataType))))
-
-  /**
-   * Creates an instance of basic stats tracker on the desired transaction
-   * @return
-   */
-  private def createStatsTrackers(): Seq[WriteJobStatsTracker] = {
-    val statsTrackers: ListBuffer[WriteJobStatsTracker] = ListBuffer()
-    // Create basic stats trackers to add metrics on the Write Operation
-    val hadoopConf = spark.sessionState.newHadoopConf()
-    val basicWriteJobStatsTracker = new BasicWriteJobStatsTracker(
-      new SerializableConfiguration(hadoopConf),
-      BasicWriteJobStatsTracker.metrics)
-    statsTrackers.append(basicWriteJobStatsTracker)
-    statsTrackers
-  }
 
   private val preCommitHooks = new ListBuffer[PreCommitHook]()
 
@@ -248,8 +229,8 @@ private[hudi] case class HudiMetadataWriter(
       Some(writerSchema)) - HoodieWriteConfig.AUTO_COMMIT_ENABLE.key
 
     // Check if it is necessary in hudi
-    val statsTrackers = createStatsTrackers()
-    registerStatsTrackers(statsTrackers)
+//    val statsTrackers = createStatsTrackers()
+//    registerStatsTrackers(statsTrackers)
 
     DataSourceUtils.createHoodieClient(
       jsc,

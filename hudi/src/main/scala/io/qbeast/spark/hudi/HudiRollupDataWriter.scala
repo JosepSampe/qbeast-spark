@@ -18,15 +18,11 @@ package io.qbeast.spark.hudi
 import io.qbeast.core.model._
 import io.qbeast.spark.writer.RollupDataWriter
 import io.qbeast.spark.writer.StatsTracker
-import io.qbeast.spark.writer.TaskStats
 import io.qbeast.IISeq
 import org.apache.hudi.client.model.HoodieInternalRow
 import org.apache.hudi.common.model.HoodieFileFormat
 import org.apache.hudi.common.model.HoodieRecord
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.execution.datasources.BasicWriteTaskStats
-import org.apache.spark.sql.execution.datasources.WriteJobStatsTracker
-import org.apache.spark.sql.execution.datasources.WriteTaskStats
 import org.apache.spark.sql.types.StringType
 import org.apache.spark.sql.types.StructField
 import org.apache.spark.sql.types.StructType
@@ -35,6 +31,7 @@ import org.apache.spark.unsafe.types.UTF8String
 import org.apache.spark.TaskContext
 
 import java.util.concurrent.atomic.AtomicLong
+import scala.collection.mutable
 
 /**
  * Delta implementation of DataWriter that applies rollup to compact the files.
@@ -42,6 +39,7 @@ import java.util.concurrent.atomic.AtomicLong
 object HudiRollupDataWriter extends RollupDataWriter {
 
   val GLOBAL_SEQ_NO = new AtomicLong(1)
+  val LOCAL_REC_NO = mutable.Map.empty[String, AtomicLong]
 
   override def write(
       tableId: QTableID,
@@ -71,10 +69,6 @@ object HudiRollupDataWriter extends RollupDataWriter {
 
     val filesAndStats =
       doWrite(tableId, hudiSchema, extendedData, tableChanges, statsTrackers, Some(processRow))
-
-    val stats = filesAndStats.map(_._2)
-    processStats(stats, statsTrackers)
-
     filesAndStats.map(_._1)
   }
 
@@ -86,7 +80,6 @@ object HudiRollupDataWriter extends RollupDataWriter {
     println("THIS IS 0.8.1")
 
     val fileExtension = HoodieFileFormat.PARQUET.getFileExtension
-    val shouldPreserveHoodieMetadata = false
 
     (row: InternalRow, fileUUID: String) => {
 
@@ -114,21 +107,14 @@ object HudiRollupDataWriter extends RollupDataWriter {
       val fileName = fileId + "_" + writeToken + "_" + commitTime + fileExtension
 
       // Relevant code is in HoodieRowCreateHandle
-      val seqId =
-        if (shouldPreserveHoodieMetadata)
-          row.getUTF8String(HoodieRecord.COMMIT_SEQNO_METADATA_FIELD_ORD)
-        else
-          UTF8String.fromString(commitTime + "_" + partId + "_" + GLOBAL_SEQ_NO.getAndIncrement)
-      val writeCommitTime =
-        if (shouldPreserveHoodieMetadata)
-          row.getUTF8String(HoodieRecord.COMMIT_TIME_METADATA_FIELD_ORD)
-        else UTF8String.fromString(commitTime)
+      val seqId = commitTime + "_" + partId + "_" + GLOBAL_SEQ_NO.getAndIncrement
 
-      val recordKey = commitTime + "-" + partId + "-" + 0
+      val recNo = LOCAL_REC_NO.getOrElseUpdate(partId.toString, new AtomicLong(1))
+      val recordKey = commitTime + "_" + partId + "_" + recNo.getAndIncrement
 
       val updatedRow = new HoodieInternalRow(
-        writeCommitTime,
-        seqId,
+        UTF8String.fromString(commitTime),
+        UTF8String.fromString(seqId),
         UTF8String.fromString(recordKey),
         UTF8String.fromString(""),
         UTF8String.fromString(fileName),
@@ -137,19 +123,6 @@ object HudiRollupDataWriter extends RollupDataWriter {
 
       (updatedRow, fileName)
     }
-  }
-
-  private def processStats(
-      stats: IISeq[TaskStats],
-      statsTrackers: Seq[WriteJobStatsTracker]): Unit = {
-    val basicStatsBuilder = Seq.newBuilder[WriteTaskStats]
-    var endTime = 0L
-    stats.foreach(stats => {
-      basicStatsBuilder ++= stats.writeTaskStats.filter(_.isInstanceOf[BasicWriteTaskStats])
-      endTime = math.max(endTime, stats.endTime)
-    })
-    val basicStats = basicStatsBuilder.result()
-    statsTrackers.foreach(_.processStats(basicStats, endTime))
   }
 
 }
