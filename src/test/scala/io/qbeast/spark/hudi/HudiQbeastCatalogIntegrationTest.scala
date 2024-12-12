@@ -462,14 +462,14 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
           .save(basePath)
       }
 
-      println("COUNTING")
+      println("--- COUNTING ROWS ---")
       println(
         spark.read
           .format(tableFormat)
           .load(basePath)
           .count())
 
-      println("---SAMPLING-----")
+      println("--- SAMPLING ---")
       spark.read
         .format(tableFormat)
         .load(basePath)

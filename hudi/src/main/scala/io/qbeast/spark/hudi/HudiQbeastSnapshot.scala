@@ -139,11 +139,11 @@ case class HudiQbeastSnapshot(tableID: QTableID) extends QbeastSnapshot with Sta
         }
     }
 
-    val actTimeline = metaClient.getActiveTimeline
-    processTimeline(actTimeline)
+    val activeTimeline = metaClient.getActiveTimeline
+    processTimeline(activeTimeline)
 
-    val archTimeline = metaClient.getArchivedTimeline(commitTimes.min)
-    processTimeline(archTimeline)
+    val archivedTimeline = metaClient.getArchivedTimeline(commitTimes.min)
+    processTimeline(archivedTimeline)
 
     import spark.implicits._
     val indexFilesDataset: Dataset[IndexFile] = spark.createDataset(indexFilesBuffer.toList)
