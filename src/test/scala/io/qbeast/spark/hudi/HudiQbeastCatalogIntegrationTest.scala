@@ -424,14 +424,15 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
         // "hoodie.metadata.index.bloom.filter.enable" -> "true",
         // "hoodie.metadata.record.index.enable" -> "true",
         // "hoodie.populate.meta.fields" -> "false",
-        "hoodie.metadata.index.column.stats.enable" -> "true"
+        "hoodie.metadata.index.column.stats.enable" -> "true",
         // "hoodie.keep.max.commits" -> "5",
         // "hoodie.keep.min.commits" -> "1",
         // "hoodie.clean.automatic" -> "false",
-        // "hoodie.archive.merge.enable" -> "true",
+
         // "hoodie.archive.automatic" -> "true",
-        // "hoodie.archive.merge.files.batch.size" -> "20"
-      )
+        "hoodie.commits.archival.batch" -> "10",
+        "hoodie.archive.merge.enable" -> "true",
+        "hoodie.archive.merge.files.batch.size" -> "5")
 
       val tableFormat = "qbeast"
 
@@ -452,7 +453,7 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
 //        .load(basePath)
 //        .show(1000, truncate = false)
 
-      (1 to 40).foreach { _ =>
+      (1 to 50).foreach { _ =>
         val data2 = createTestData(spark, 10)
         data2.write
           .format(tableFormat)
@@ -461,17 +462,19 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
           .save(basePath)
       }
 
+      println("COUNTING")
       println(
         spark.read
           .format(tableFormat)
           .load(basePath)
           .count())
-//
-//      spark.read
-//        .format(tableFormat)
-//        .load(basePath)
-//        .sample(0.1)
-//        .show(numRows = 10, truncate = false)
+
+      println("---SAMPLING-----")
+      spark.read
+        .format(tableFormat)
+        .load(basePath)
+        .sample(0.1)
+        .show(numRows = 10, truncate = false)
 
     }
 

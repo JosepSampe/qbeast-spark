@@ -8,6 +8,7 @@ import org.apache.hadoop.fs.FileStatus
 import org.apache.hadoop.fs.Path
 import org.apache.hudi.common.fs.FSUtils
 import org.apache.hudi.common.model.HoodieCommitMetadata
+import org.apache.hudi.common.table.timeline.HoodieTimeline
 import org.apache.hudi.common.table.HoodieTableMetaClient
 import org.apache.hudi.common.table.TableSchemaResolver
 import org.apache.hudi.hadoop.fs.HadoopFSUtils
@@ -122,22 +123,27 @@ case class HudiQbeastSnapshot(tableID: QTableID) extends QbeastSnapshot with Sta
       new StoragePath(filePath).getName
     }.distinct
 
-    val timeline = metaClient.getActiveTimeline.getAllCommitsTimeline
-    val completedInstants = timeline.filterCompletedInstants.getInstants.iterator().asScala
-    completedInstants
-      .filter(instant => commitTimes.contains(instant.getTimestamp))
-      .foreach { instant =>
-        val commitMetadataBytes = metaClient.getActiveTimeline
-          .getInstantDetails(instant)
-          .get()
-        val commitMetadata =
-          HoodieCommitMetadata.fromBytes(commitMetadataBytes, classOf[HoodieCommitMetadata])
-        val indexFiles = HudiQbeastFileUtils
-          .fromCommitFile(dimensionCount)(commitMetadata)
-          .filter(file => file.revisionId == revisionID && fileNames.contains(file.path))
+    def processTimeline(timeline: HoodieTimeline): Unit = {
+      timeline.filterCompletedInstants.getInstants
+        .iterator()
+        .asScala
+        .filter(instant => commitTimes.contains(instant.getTimestamp))
+        .foreach { instant =>
+          val commitMetadataBytes = timeline.getInstantDetails(instant).get()
+          val commitMetadata =
+            HoodieCommitMetadata.fromBytes(commitMetadataBytes, classOf[HoodieCommitMetadata])
+          val indexFiles = HudiQbeastFileUtils
+            .fromCommitFile(dimensionCount)(commitMetadata)
+            .filter(file => file.revisionId == revisionID && fileNames.contains(file.path))
+          indexFilesBuffer ++= indexFiles
+        }
+    }
 
-        indexFilesBuffer ++= indexFiles
-      }
+    val actTimeline = metaClient.getActiveTimeline
+    processTimeline(actTimeline)
+
+    val archTimeline = metaClient.getArchivedTimeline(commitTimes.min)
+    processTimeline(archTimeline)
 
     import spark.implicits._
     val indexFilesDataset: Dataset[IndexFile] = spark.createDataset(indexFilesBuffer.toList)
