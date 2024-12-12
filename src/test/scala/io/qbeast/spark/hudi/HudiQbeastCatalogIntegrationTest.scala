@@ -453,14 +453,14 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
 //        .load(basePath)
 //        .show(1000, truncate = false)
 
-      (1 to 50).foreach { _ =>
-        val data2 = createTestData(spark, 10)
-        data2.write
-          .format(tableFormat)
-          .mode("append")
-          .options(hudiOptions)
-          .save(basePath)
-      }
+//      (1 to 50).foreach { _ =>
+//        val data2 = createTestData(spark, 10)
+//        data2.write
+//          .format(tableFormat)
+//          .mode("append")
+//          .options(hudiOptions)
+//          .save(basePath)
+//      }
 
       println("--- COUNTING ROWS ---")
       println(
@@ -479,29 +479,94 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
     }
 
   it should
-    "read qbeast hudi files" in withExtendedSparkAndTmpDir(hudiSparkConf) { (spark, tmpDir) =>
-      val tableName: String = "hudi_table"
-      val currentPath = Paths.get("").toAbsolutePath.toString
-      val basePath = s"$currentPath/spark-warehouse/$tableName"
+    "read qbeast hudi metadata files" in withExtendedSparkAndTmpDir(hudiSparkConf) {
+      (spark, tmpDir) =>
+        val tableName: String = "hudi_table"
+        val currentPath = Paths.get("").toAbsolutePath.toString
+        val basePath = s"$currentPath/spark-warehouse/$tableName"
 
-      val metadataDF = spark.read.format("hudi").load(s"$basePath/.hoodie/metadata")
-      metadataDF.printSchema()
-      metadataDF.show(numRows = 1000, truncate = false)
+        val metadataDF = spark.read.format("hudi").load(s"$basePath/.hoodie/metadata")
+        metadataDF.printSchema()
+        metadataDF.show(numRows = 100, truncate = false)
 
-      val tableFormat = "hudi"
+        val tableFormat = "hudi"
 
-      spark.read
-        .format(tableFormat)
-        .load(basePath)
-        .sample(0.1)
-        .show(numRows = 10, truncate = false)
-
-      println(
         spark.read
           .format(tableFormat)
           .load(basePath)
-          .count())
+          .sample(0.1)
+          .show(numRows = 10, truncate = false)
 
+        println(
+          spark.read
+            .format(tableFormat)
+            .load(basePath)
+            .count())
+    }
+
+  it should
+    "extend qbeast metadata files" in withExtendedSparkAndTmpDir(hudiSparkConf) {
+      (spark, tmpDir) =>
+        val tableName: String = "hudi_table"
+        val currentPath = Paths.get("").toAbsolutePath.toString
+        val basePath = s"$currentPath/spark-warehouse/$tableName"
+        val metadataPath = s"$basePath/.hoodie/metadata"
+
+        val metadataDF = spark.read.format("hudi").load(metadataPath)
+        println(metadataDF.schema)
+        metadataDF.printSchema()
+        // metadataDF.show(numRows = 100, truncate = false)
+
+        import org.apache.spark.sql.types._
+
+        val extendedSchema = StructType(
+          metadataDF.schema.fields ++ Seq(StructField(
+            "qbeastMetadata",
+            StructType(Seq(
+              StructField("fileName", StringType, nullable = false),
+              StructField("revision", IntegerType, nullable = false),
+              StructField(
+                "blocks",
+                StructType(Seq(
+                  StructField("cubeId", IntegerType, nullable = false),
+                  StructField("minWeight", IntegerType, nullable = false),
+                  StructField("maxWeight", IntegerType, nullable = false),
+                  StructField("elementCount", IntegerType, nullable = false))),
+                nullable = false))),
+            nullable = true)))
+
+        println(extendedSchema)
+
+        val newData = Seq(
+          Row(
+            "key1", // key
+            2, // type
+            null, // filesystemMetadata
+            null, // BloomFilterMetadata
+            null, // ColumnStatsMetadata
+            null // recordIndexMetadata
+//            Row( // qbeastMetadata
+//              "file1", // fileName
+//              1, // revision
+//              Row( // blocks
+//                123, // cubeId
+//                10, // minWeight
+//                20, // maxWeight
+//                100 // elementCount
+//              ))
+          ))
+
+        val newDataDF =
+          spark.createDataFrame(spark.sparkContext.parallelize(newData), metadataDF.schema)
+
+        newDataDF.write
+          .format("hudi")
+          .mode("append")
+          .save(metadataPath)
+
+        val metadataDF2 = spark.read.format("hudi").load(s"$basePath/.hoodie/metadata")
+        metadataDF2.printSchema()
+        metadataDF2.show(numRows = 100, truncate = false)
     }
 
   it should
