@@ -124,9 +124,7 @@ case class HudiQbeastSnapshot(tableID: QTableID) extends QbeastSnapshot with Sta
     }.distinct
 
     def processTimeline(timeline: HoodieTimeline): Unit = {
-      timeline.filterCompletedInstants.getInstants
-        .iterator()
-        .asScala
+      timeline.filterCompletedInstants.getInstants.asScala
         .filter(instant => commitTimes.contains(instant.getTimestamp))
         .foreach { instant =>
           val commitMetadataBytes = timeline.getInstantDetails(instant).get()
