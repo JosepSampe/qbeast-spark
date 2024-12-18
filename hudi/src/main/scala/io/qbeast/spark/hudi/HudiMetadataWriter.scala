@@ -15,6 +15,7 @@
  */
 package io.qbeast.spark.hudi
 
+import com.fasterxml.jackson.databind.JsonNode
 import io.qbeast.core.model._
 import io.qbeast.core.model.PreCommitHook.PreCommitHookOutput
 import io.qbeast.core.model.WriteMode.WriteModeValue
@@ -22,7 +23,9 @@ import io.qbeast.spark.internal.QbeastOptions
 import io.qbeast.spark.utils.MetadataConfig
 import io.qbeast.spark.utils.TagUtils
 import io.qbeast.IISeq
+import org.apache.avro.generic.GenericData
 import org.apache.avro.Schema
+import org.apache.avro.SchemaBuilder
 import org.apache.hudi
 import org.apache.hudi.avro.HoodieAvroUtils
 import org.apache.hudi.client.common.HoodieSparkEngineContext
@@ -33,7 +36,9 @@ import org.apache.hudi.common.config.HoodieConfig
 import org.apache.hudi.common.config.HoodieMetadataConfig
 import org.apache.hudi.common.fs.FSUtils
 import org.apache.hudi.common.model.ActionType
+import org.apache.hudi.common.model.HoodieAvroRecord
 import org.apache.hudi.common.model.HoodieCommitMetadata
+import org.apache.hudi.common.model.HoodieKey
 import org.apache.hudi.common.model.HoodiePartitionMetadata
 import org.apache.hudi.common.model.HoodiePayloadProps
 import org.apache.hudi.common.model.HoodieRecord
@@ -48,15 +53,20 @@ import org.apache.hudi.common.table.HoodieTableMetaClient
 import org.apache.hudi.common.table.TableSchemaResolver
 import org.apache.hudi.common.util.CommitUtils
 import org.apache.hudi.common.util.HoodieTimer
+import org.apache.hudi.common.util.Option
 import org.apache.hudi.common.util.StringUtils.getUTF8Bytes
 import org.apache.hudi.config.HoodieWriteConfig
+import org.apache.hudi.hadoop.fs.HadoopFSUtils
 import org.apache.hudi.internal.schema.convert.AvroInternalSchemaConverter
 import org.apache.hudi.internal.schema.utils.SerDeHelper
 import org.apache.hudi.internal.schema.InternalSchema
 import org.apache.hudi.metadata.HoodieBackedTableMetadata
+import org.apache.hudi.metadata.HoodieMetadataPayload
 import org.apache.hudi.metadata.HoodieTableMetadata
+import org.apache.hudi.metadata.SparkHoodieBackedTableMetadataWriter
+import org.apache.hudi.storage.hadoop.HadoopStorageConfiguration
 import org.apache.hudi.storage.StoragePath
-import org.apache.hudi.table.action.HoodieWriteMetadata
+// import org.apache.hudi.table.action.HoodieWriteMetadata
 import org.apache.hudi.table.HoodieSparkTable
 import org.apache.hudi.AvroConversionUtils
 import org.apache.hudi.AvroConversionUtils.getAvroRecordNameAndNamespace
@@ -77,6 +87,7 @@ import org.apache.spark.sql.SparkSession
 
 import java.lang.System.currentTimeMillis
 import java.util
+import java.util.UUID
 import scala.collection.mutable
 import scala.collection.mutable.ListBuffer
 import scala.collection.JavaConverters._
@@ -87,7 +98,7 @@ import scala.collection.JavaConverters._
  *
  * @param tableID
  *   the table identifier
- * @param mode
+ * @param writeMode
  *   SaveMode of the writeMetadata
  * @param metaClient
  *   metaClient associated to the table
@@ -316,10 +327,158 @@ private[hudi] case class HudiMetadataWriter(
       hudiClient.commit(instantTime, writeStatusRdd, hudi.common.util.Option.of(extraMeta))
     }
 
-    val hoodieWriteMetadata = new HoodieWriteMetadata[JavaRDD[WriteStatus]]
-    hoodieWriteMetadata.setWriteStatuses(writeStatusRdd)
-    val table = hudiClient.initTable(operationType, hudi.common.util.Option.of(instantTime))
-    hudiClient.postWrite(hoodieWriteMetadata, instantTime, table)
+    updateQbeastMetadata(qbeastMetadata)
+
+//    val hoodieWriteMetadata = new HoodieWriteMetadata[JavaRDD[WriteStatus]]
+//    hoodieWriteMetadata.setWriteStatuses(writeStatusRdd)
+//    val table = hudiClient.initTable(operationType, hudi.common.util.Option.of(instantTime))
+//    hudiClient.postWrite(hoodieWriteMetadata, instantTime, table)
+  }
+
+  // --------------------------------- UPDATE METADATA TABLE --------------------------------
+
+  private def updateQbeastMetadata(
+      qbeastMetadata: mutable.Map[String, Map[String, Object]]): Unit = {
+    val metadataPath =
+      basePath + StoragePath.SEPARATOR + HoodieTableMetaClient.METADATA_TABLE_FOLDER_PATH
+    val metadataMetaClient = HoodieTableMetaClient
+      .builder()
+      .setConf(new HadoopStorageConfiguration(jsc.hadoopConfiguration()))
+      .setBasePath(metadataPath)
+      .build()
+
+    val tableSchemaResolver = new TableSchemaResolver(metadataMetaClient)
+    val originalSchema = tableSchemaResolver.getTableAvroSchemaFromLatestCommit(false).get
+
+    val qbeastMetadataSchema: Schema = SchemaBuilder
+      .record("qbeastMetadata")
+      .namespace("io.qbeast.metadata")
+      .fields()
+      .name("fileName")
+      .`type`()
+      .stringType()
+      .noDefault()
+      .name("revision")
+      .`type`()
+      .intType()
+      .noDefault()
+      .name("blocks")
+      .`type`(
+        SchemaBuilder
+          .record("blocks")
+          .namespace("io.qbeast.metadata")
+          .fields()
+          .name("cubeId")
+          .`type`()
+          .intType()
+          .noDefault()
+          .name("minWeight")
+          .`type`()
+          .intType()
+          .noDefault()
+          .name("maxWeight")
+          .`type`()
+          .intType()
+          .noDefault()
+          .name("elementCount")
+          .`type`()
+          .intType()
+          .noDefault()
+          .endRecord())
+      .noDefault()
+      .endRecord()
+
+    val updatedSchema: Schema = {
+      val builder = SchemaBuilder
+        .record(originalSchema.getName)
+        .namespace(originalSchema.getNamespace)
+        .fields()
+      originalSchema.getFields.forEach { field =>
+        val fieldBuilder = builder.name(field.name()).`type`(field.schema())
+        if (field.defaultVal() == null || field
+            .defaultVal()
+            .isInstanceOf[org.apache.avro.JsonProperties.Null]) {
+          fieldBuilder.noDefault()
+        } else {
+          fieldBuilder.withDefault(field.defaultVal())
+        }
+      }
+      builder
+        .name("qbeastMetadata")
+        .`type`(SchemaBuilder.unionOf().nullType().and().`type`(qbeastMetadataSchema).endUnion())
+        .noDefault()
+      builder.endRecord()
+    }
+
+    val (parameters, _) =
+      mergeParamsAndGetHoodieConfig(Map.empty, metadataMetaClient.getTableConfig, SaveMode.Append)
+    val newParams = parameters - HoodieTableConfig.KEY_GENERATOR_CLASS_NAME.key
+
+    val metadataHudiClient = DataSourceUtils
+      .createHoodieClient(
+        jsc,
+        updatedSchema.toString,
+        metadataPath,
+        metadataMetaClient.getTableConfig.getTableName,
+        newParams.asJava)
+      .asInstanceOf[SparkRDDWriteClient[HoodieMetadataPayload]]
+
+    val fileRecords: Seq[GenericData.Record] = {
+      qbeastMetadata.toSeq.map { case (fileName, attributes) =>
+        val revision = attributes("revision").toString.toInt
+        val blocks: JsonNode = attributes("blocks").asInstanceOf[JsonNode]
+
+        val blockSchema = qbeastMetadataSchema.getField("blocks").schema()
+        val blockRecords = blocks
+          .elements()
+          .asScala
+          .map { block =>
+            val blockRecord = new GenericData.Record(blockSchema)
+            blockRecord.put("cubeId", block.get("cubeId").asText())
+            blockRecord.put("minWeight", block.get("minWeight").asInt())
+            blockRecord.put("maxWeight", block.get("maxWeight").asInt())
+            blockRecord.put("elementCount", block.get("elementCount").asInt())
+            blockRecord
+          }
+          .toSeq
+          .asJava
+
+        val qbeastRecord = new GenericData.Record(qbeastMetadataSchema)
+        qbeastRecord.put("fileName", fileName)
+        qbeastRecord.put("revision", revision)
+        qbeastRecord.put("blocks", blockRecords)
+
+        val fileRecord = new GenericData.Record(updatedSchema)
+        fileRecord.put("key", UUID.randomUUID().toString)
+        fileRecord.put("type", 6)
+        fileRecord.put("qbeastMetadata", qbeastRecord)
+        fileRecord
+      }
+    }
+
+    val hoodieRecords: Seq[HoodieRecord[HoodieMetadataPayload]] = fileRecords.map { fileRecord =>
+      val hoodieKey = new HoodieKey(fileRecord.get("key").toString, "files")
+      val payload = new HoodieMetadataPayload(Option.of(fileRecord))
+      new HoodieAvroRecord(hoodieKey, payload)
+    }
+
+//    val writeClient = new SparkRDDWriteClient[HoodieMetadataPayload](
+//      metadataHudiClient.getEngineContext,
+//      metadataHudiClient.getConfig)
+
+    val javaRDD: JavaRDD[HoodieRecord[HoodieMetadataPayload]] =
+      jsc.parallelize(hoodieRecords).toJavaRDD()
+
+    // Start the commit
+    val operationType = WriteOperationType.UPSERT_PREPPED
+    val commitActionType =
+      CommitUtils.getCommitActionType(operationType, metadataMetaClient.getTableType)
+    val instantTime = HoodieActiveTimeline.createNewInstantTime
+    println(instantTime)
+    metadataHudiClient.startCommitWithTime(instantTime, commitActionType)
+    val writeMetadataResult = metadataHudiClient.upsertPreppedRecords(javaRDD, instantTime)
+    metadataHudiClient.commit(instantTime, writeMetadataResult)
+
   }
 
   def updateMetadataWithTransaction(config: => Configuration, overwrite: Boolean): Unit = {
@@ -331,6 +490,7 @@ private[hudi] case class HudiMetadataWriter(
         }
 
     val hudiClient = createHoodieClient()
+
     val commitActionType =
       CommitUtils.getCommitActionType(WriteOperationType.ALTER_SCHEMA, metaClient.getTableType)
     val instantTime = HoodieActiveTimeline.createNewInstantTime
@@ -414,6 +574,9 @@ private[hudi] case class HudiMetadataWriter(
       }.toIndexedSeq
     } else deleteFiles
 
+    println(deletedFiles)
+    println(deletedFiles.size)
+
     indexFiles ++ deletedFiles
   }
 
@@ -437,6 +600,20 @@ private[hudi] case class HudiMetadataWriter(
         false)
     val tablePath = new StoragePath(tableID.id)
     val allFilesM = tableMetadata.getAllFilesInPartition(tablePath).asScala
+
+    val writeConfig = HoodieWriteConfig
+      .newBuilder()
+      .withPath(basePath)
+      .forTable("hudi_table_ow")
+      .build()
+
+    val metadataWriter = SparkHoodieBackedTableMetadataWriter.create(
+      HadoopFSUtils.getStorageConfWithCopy(jsc.hadoopConfiguration()),
+      writeConfig,
+      new HoodieSparkEngineContext(jsc))
+    println(metadataWriter.isInitialized)
+    println("********")
+
     allFilesM
       .map(fileStatus =>
         new IndexFileBuilder()
@@ -459,6 +636,9 @@ private[hudi] case class HudiMetadataWriter(
       .map(_.getFileId)
       .toList
       .asJava
+
+    println(existingFileIds.size())
+    println("-------")
 
     Map("" -> existingFileIds).asJava
   }

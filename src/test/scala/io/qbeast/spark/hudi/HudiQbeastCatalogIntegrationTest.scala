@@ -505,71 +505,6 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
     }
 
   it should
-    "extend qbeast metadata files" in withExtendedSparkAndTmpDir(hudiSparkConf) {
-      (spark, tmpDir) =>
-        val tableName: String = "hudi_table"
-        val currentPath = Paths.get("").toAbsolutePath.toString
-        val basePath = s"$currentPath/spark-warehouse/$tableName"
-        val metadataPath = s"$basePath/.hoodie/metadata"
-
-        val metadataDF = spark.read.format("hudi").load(metadataPath)
-        println(metadataDF.schema)
-        metadataDF.printSchema()
-        // metadataDF.show(numRows = 100, truncate = false)
-
-        import org.apache.spark.sql.types._
-
-        val extendedSchema = StructType(
-          metadataDF.schema.fields ++ Seq(StructField(
-            "qbeastMetadata",
-            StructType(Seq(
-              StructField("fileName", StringType, nullable = false),
-              StructField("revision", IntegerType, nullable = false),
-              StructField(
-                "blocks",
-                StructType(Seq(
-                  StructField("cubeId", IntegerType, nullable = false),
-                  StructField("minWeight", IntegerType, nullable = false),
-                  StructField("maxWeight", IntegerType, nullable = false),
-                  StructField("elementCount", IntegerType, nullable = false))),
-                nullable = false))),
-            nullable = true)))
-
-        println(extendedSchema)
-
-        val newData = Seq(
-          Row(
-            "key1", // key
-            2, // type
-            null, // filesystemMetadata
-            null, // BloomFilterMetadata
-            null, // ColumnStatsMetadata
-            null // recordIndexMetadata
-//            Row( // qbeastMetadata
-//              "file1", // fileName
-//              1, // revision
-//              Row( // blocks
-//                123, // cubeId
-//                10, // minWeight
-//                20, // maxWeight
-//                100 // elementCount
-//              ))
-          ))
-
-        val newDataDF =
-          spark.createDataFrame(spark.sparkContext.parallelize(newData), metadataDF.schema)
-
-        newDataDF.write
-          .format("hudi")
-          .mode("append")
-          .save(metadataPath)
-
-        val metadataDF2 = spark.read.format("hudi").load(s"$basePath/.hoodie/metadata")
-        metadataDF2.printSchema()
-        metadataDF2.show(numRows = 100, truncate = false)
-    }
-
-  it should
     "optimize qbeast table" in withExtendedSparkAndTmpDir(hudiSparkConf) { (spark, tmpDir) =>
       val tableName: String = "hudi_table_optimize"
       val currentPath = Paths.get("").toAbsolutePath.toString
@@ -632,6 +567,82 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
         .load(basePath)
         .sample(0.1)
         .show(numRows = 10, truncate = false)
+
+    }
+
+  it should
+    "overwrite qbeast table" in withExtendedSparkAndTmpDir(hudiSparkConf) { (spark, tmpDir) =>
+      val tableName: String = "hudi_table_ow"
+      val currentPath = Paths.get("").toAbsolutePath.toString
+      val basePath = s"$currentPath/spark-josep/$tableName"
+
+      removeDirectory(basePath)
+
+      val tableFormat = "qbeast"
+
+      val hudiOptions = Map(
+        "hoodie.table.name" -> tableName,
+        "hoodie.metadata.enable" -> "true",
+        "hoodie.file.index.enable" -> "true")
+
+      val data = createTestData(spark, 1000)
+      data.write
+        .format(tableFormat)
+        .mode("overwrite")
+        .options(hudiOptions)
+        .option("columnsToIndex", "id")
+        .save(basePath)
+
+      val data2 = createTestData(spark, 500)
+      data2.write
+        .format(tableFormat)
+        .mode("append")
+        .options(hudiOptions)
+        .option("columnsToIndex", "id")
+        .save(basePath)
+
+      val data3 = createTestData(spark, 250)
+      data3.write
+        .format(tableFormat)
+        .mode("overwrite")
+        .options(hudiOptions)
+        .option("columnsToIndex", "id")
+        .save(basePath)
+
+      val data4 = createTestData(spark, 400)
+      data4.write
+        .format(tableFormat)
+        .mode("append")
+        .options(hudiOptions)
+        .option("columnsToIndex", "id")
+        .save(basePath)
+
+      val data5 = createTestData(spark, 450)
+      data5.write
+        .format(tableFormat)
+        .mode("overwrite")
+        .options(hudiOptions)
+        .option("columnsToIndex", "id")
+        .save(basePath)
+
+      println("Querying. Total rows:")
+      println(
+        spark.read
+          .format(tableFormat)
+          .load(basePath)
+          .count())
+
+      spark.read
+        .format(tableFormat)
+        .load(basePath)
+        .sample(0.1)
+        .show(numRows = 10, truncate = false)
+
+      val metadataPath = s"$basePath/.hoodie/metadata"
+
+      val metadataDF = spark.read.format("hudi").load(metadataPath)
+      metadataDF.printSchema()
+      metadataDF.show(10000, false)
 
     }
 
