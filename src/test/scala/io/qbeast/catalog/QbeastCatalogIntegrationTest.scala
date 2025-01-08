@@ -29,13 +29,19 @@ class QbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec with Catalo
         .setMaster("local[8]")
         .set("spark.sql.warehouse.dir", tmpDir)
         .set("spark.sql.extensions", "io.qbeast.sql.HudiQbeastSparkSessionExtension")
+        .set("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
+        .set("spark.kryo.registrator", "org.apache.spark.HoodieSparkKryoRegistrar")
+        .set("spark.qbeast.tableFormat", "hudi")
+        .set("hoodie.populate.meta.fields", "false")
         .set("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.hudi.catalog.HoodieCatalog")
         .set("spark.sql.catalog.qbeast_catalog", "io.qbeast.catalog.QbeastCatalog"))(spark => {
 
         val data = createTestData(spark)
 
         val table_name = s"${DEFAULT_TABLE_FORMAT}_table"
-        data.write.format(DEFAULT_TABLE_FORMAT).saveAsTable(table_name)
+        data.write
+          .format(DEFAULT_TABLE_FORMAT)
+          .saveAsTable(table_name)
 
         data.write
           .format("qbeast")
@@ -47,6 +53,8 @@ class QbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec with Catalo
 
         val deltaTable = spark.read.table(table_name)
         val qbeastTable = spark.read.table("qbeast_catalog.default.qbeast_table")
+
+        println(deltaTable.schema)
 
         assertSmallDatasetEquality(
           deltaTable,

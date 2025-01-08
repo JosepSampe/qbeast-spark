@@ -92,7 +92,6 @@ case class ConvertToQbeastCommand(
               }
             case "hudi" =>
               try {
-
                 spark.read
                   .format("parquet")
                   .load(qTableID.id)

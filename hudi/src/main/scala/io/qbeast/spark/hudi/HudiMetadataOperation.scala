@@ -53,7 +53,7 @@ private[hudi] trait HudiMetadataOperation extends MetadataOperation {
     val metaPathDir =
       new StoragePath(metaClient.getBasePath, HoodieTableMetaClient.METAFOLDER_NAME)
 
-    HoodieTableConfig.create(metaClient.getStorage, metaPathDir, tableProperties.getProps())
+    HoodieTableConfig.update(metaClient.getStorage, metaPathDir, tableProperties.getProps())
   }
 
 }

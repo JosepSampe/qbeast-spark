@@ -420,22 +420,24 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
       val hudiOptions = Map(
         "columnsToIndex" -> "id",
         "hoodie.table.name" -> tableName,
-        // "hoodie.table.recordkey.fields" -> "id",
-        "hoodie.metadata.enable" -> "true",
-        "hoodie.file.index.enable" -> "true",
+        "hoodie.metadata.enable" -> "true"
+        // "hoodie.file.index.enable" -> "true",
         // "hoodie.metadata.index.bloom.filter.enable" -> "true",
+        // "hoodie.metadata.index.column.stats.enable" -> "true"
         // "hoodie.metadata.record.index.enable" -> "true",
+
         // "hoodie.populate.meta.fields" -> "false",
-        "hoodie.metadata.index.column.stats.enable" -> "true"
+        // "hoodie.table.recordkey.fields" -> "id"
+
         // "hoodie.keep.max.commits" -> "5",
         // "hoodie.keep.min.commits" -> "1",
         // "hoodie.clean.automatic" -> "false",
 
         // "hoodie.archive.automatic" -> "true",
-        // "hoodie.commits.archival.batch" -> "10"
+        // "hoodie.commits.archival.batch" -> "10")
       )
 
-      val tableFormat = "qbeast"
+      val tableFormat = "hudi"
 
       val data = createTestData(spark, 100)
       data.write
@@ -454,14 +456,14 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
 //        .load(basePath)
 //        .show(1000, truncate = false)
 
-//      (1 to 50).foreach { _ =>
-//        val data2 = createTestData(spark, 10)
-//        data2.write
-//          .format(tableFormat)
-//          .mode("append")
-//          .options(hudiOptions)
-//          .save(basePath)
-//      }
+      (1 to 5).foreach { _ =>
+        val data2 = createTestData(spark, 10)
+        data2.write
+          .format(tableFormat)
+          .mode("append")
+          .options(hudiOptions)
+          .save(basePath)
+      }
 
       println("--- COUNTING ROWS ---")
       println(
