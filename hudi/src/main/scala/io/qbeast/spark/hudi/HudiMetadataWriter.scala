@@ -40,9 +40,6 @@ import org.apache.hudi.common.model.HoodieRecord
 import org.apache.hudi.common.model.HoodieTableType.COPY_ON_WRITE
 import org.apache.hudi.common.model.HoodieTableType.MERGE_ON_READ
 import org.apache.hudi.common.model.WriteOperationType
-import org.apache.hudi.common.table.timeline.versioning.v2.InstantGeneratorV2
-import org.apache.hudi.common.table.timeline.HoodieActiveTimeline
-import org.apache.hudi.common.table.timeline.HoodieInstant
 import org.apache.hudi.common.table.timeline.HoodieInstant.State
 import org.apache.hudi.common.table.HoodieTableConfig
 import org.apache.hudi.common.table.HoodieTableMetaClient
@@ -262,7 +259,8 @@ private[hudi] case class HudiMetadataWriter(
     val hoodieTable = HoodieSparkTable.create(hudiClient.getConfig, hudiClient.getEngineContext)
     val timeLine = hoodieTable.getActiveTimeline
     val instantGenerator = metaClient.getTimelineLayout.getInstantGenerator
-    val requested = instantGenerator.createNewInstant(State.REQUESTED, commitActionType, instantTime)
+    val requested =
+      instantGenerator.createNewInstant(State.REQUESTED, commitActionType, instantTime)
     val metadata = new HoodieCommitMetadata
     metadata.setOperationType(operationType)
     timeLine.transitionRequestedToInflight(
@@ -342,7 +340,8 @@ private[hudi] case class HudiMetadataWriter(
     val hoodieTable = HoodieSparkTable.create(hudiClient.getConfig, hudiClient.getEngineContext)
     val timeLine = hoodieTable.getActiveTimeline
     val instantGenerator = metaClient.getTimelineLayout.getInstantGenerator
-    val requested = instantGenerator.createNewInstant(State.REQUESTED, commitActionType, instantTime)
+    val requested =
+      instantGenerator.createNewInstant(State.REQUESTED, commitActionType, instantTime)
     val metadata = new HoodieCommitMetadata
     metadata.setOperationType(WriteOperationType.ALTER_SCHEMA)
     timeLine.transitionRequestedToInflight(
@@ -381,9 +380,8 @@ private[hudi] case class HudiMetadataWriter(
       deleteFiles: Seq[DeleteFile],
       extraConfiguration: Configuration): Seq[QbeastFile] = {
 
-    val hasPartitionMetadata = HoodiePartitionMetadata.hasPartitionMetadata(
-      metaClient.getStorage,
-      metaClient.getBasePath)
+    val hasPartitionMetadata =
+      HoodiePartitionMetadata.hasPartitionMetadata(metaClient.getStorage, metaClient.getBasePath)
     if (!hasPartitionMetadata) {
       val partitionMetadata =
         new HoodiePartitionMetadata(

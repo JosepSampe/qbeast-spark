@@ -28,8 +28,7 @@ import org.apache.hudi.common.model.HoodieCommitMetadata
 import org.apache.hudi.common.model.HoodieKey
 import org.apache.hudi.common.model.HoodieRecord
 import org.apache.hudi.common.model.WriteOperationType
-import org.apache.hudi.common.table.timeline.HoodieActiveTimeline
-import org.apache.hudi.common.table.timeline.HoodieInstant
+import org.apache.hudi.common.table.timeline.HoodieInstant.State
 import org.apache.hudi.common.table.timeline.HoodieTimeline
 import org.apache.hudi.common.table.HoodieTableMetaClient
 import org.apache.hudi.common.util.collection.Pair
@@ -192,8 +191,12 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
 
         var timeline = hoodieTable.getActiveTimeline
         println(timeline)
-        val commitTime = HoodieActiveTimeline.createNewInstantTime
-        val hoodieInstant = new HoodieInstant(true, HoodieTimeline.COMMIT_ACTION, commitTime)
+        val instantTime = metaClient.createNewInstantTime()
+        val instantGenerator = metaClient.getTimelineLayout.getInstantGenerator
+        val hoodieInstant = instantGenerator.createNewInstant(
+          State.REQUESTED,
+          HoodieTimeline.COMMIT_ACTION,
+          instantTime)
         timeline.createNewInstant(hoodieInstant)
         timeline.saveAsComplete(hoodieInstant, Option.of(commitMetadata.toJsonString.getBytes))
 
@@ -262,7 +265,7 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
         CommitUtils.getCommitActionType(
           WriteOperationType.BULK_INSERT,
           hoodieCatalogTable.tableType)
-      val instantTime = HoodieActiveTimeline.createNewInstantTime
+      val instantTime = writeClient.createNewInstantTime()
 
       writeClient.startCommitWithTime(instantTime, commitActionType)
 
@@ -359,7 +362,7 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
 //        val lastInstantDetails = metaClient.getActiveTimeline.getInstantDetails(lastInstant).get
 
         println(metaClient.getTableConfig.getMetadataPartitions)
-        val instantTime = HoodieActiveTimeline.createNewInstantTime
+        val instantTime = metaClient.createNewInstantTime()
         println(instantTime)
 
         // val metadataWriter = hoodieTable.getMetadataWriter(instantTime).get()
@@ -372,7 +375,6 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
         bloomFiltersList.add(MetadataPartitionType.RECORD_INDEX)
 
         println(metaClient.getTableConfig.getMetadataPartitions)
-        metadataWriter.dropMetadataPartitions(bloomFiltersList)
         metaClient.reloadActiveTimeline()
         println(metaClient.getTableConfig.getMetadataPartitions)
         println(metaClient.getTableConfig.isMetadataTableAvailable)
@@ -409,7 +411,7 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
 
   it should
     "write qbeast files" in withExtendedSparkAndTmpDir(hudiSparkConf) { (spark, tmpDir) =>
-      val tableName: String = "hudi_table"
+      val tableName: String = "hudi_table_v1"
       val currentPath = Paths.get("").toAbsolutePath.toString
       val basePath = s"$currentPath/spark-warehouse/$tableName"
 
@@ -424,15 +426,14 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
         // "hoodie.metadata.index.bloom.filter.enable" -> "true",
         // "hoodie.metadata.record.index.enable" -> "true",
         // "hoodie.populate.meta.fields" -> "false",
-        "hoodie.metadata.index.column.stats.enable" -> "true",
+        "hoodie.metadata.index.column.stats.enable" -> "true"
         // "hoodie.keep.max.commits" -> "5",
         // "hoodie.keep.min.commits" -> "1",
         // "hoodie.clean.automatic" -> "false",
 
         // "hoodie.archive.automatic" -> "true",
-        "hoodie.commits.archival.batch" -> "10",
-        "hoodie.archive.merge.enable" -> "true",
-        "hoodie.archive.merge.files.batch.size" -> "5")
+        // "hoodie.commits.archival.batch" -> "10"
+      )
 
       val tableFormat = "qbeast"
 
@@ -468,6 +469,12 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
           .format(tableFormat)
           .load(basePath)
           .count())
+
+      println("--- READING ---")
+      spark.read
+        .format(tableFormat)
+        .load(basePath)
+        .show(numRows = 10, truncate = false)
 
       println("--- SAMPLING ---")
       spark.read

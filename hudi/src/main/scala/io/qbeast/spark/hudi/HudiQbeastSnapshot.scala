@@ -9,9 +9,9 @@ import org.apache.hadoop.fs.Path
 import org.apache.hudi.common.fs.FSUtils
 import org.apache.hudi.common.model.HoodieCommitMetadata
 import org.apache.hudi.common.table.timeline.HoodieTimeline
+import org.apache.hudi.common.table.timeline.TimelineMetadataUtils
 import org.apache.hudi.common.table.HoodieTableMetaClient
 import org.apache.hudi.common.table.TableSchemaResolver
-import org.apache.hudi.common.util.StringUtils.fromUTF8Bytes
 import org.apache.hudi.hadoop.fs.HadoopFSUtils
 import org.apache.hudi.storage.StoragePath
 import org.apache.hudi.AvroConversionUtils
@@ -130,13 +130,12 @@ case class HudiQbeastSnapshot(tableID: QTableID) extends QbeastSnapshot with Sta
 
     def processTimeline(timeline: HoodieTimeline): Unit = {
       timeline.filterCompletedInstants.getInstants.asScala
-        .filter(instant => commitTimes.contains(instant.getCompletionTime))
+        .filter(instant => commitTimes.contains(instant.requestedTime()))
         .foreach { instant =>
           val commitMetadataBytes = timeline.getInstantDetails(instant).get()
+          val metadata = TimelineMetadataUtils.deserializeCommitMetadata(commitMetadataBytes)
           val commitMetadata =
-            HoodieCommitMetadata.fromJsonString(
-              fromUTF8Bytes(commitMetadataBytes),
-              classOf[HoodieCommitMetadata])
+            HoodieCommitMetadata.fromJsonString(metadata.toString, classOf[HoodieCommitMetadata])
           val indexFiles = HudiQbeastFileUtils
             .fromCommitFile(dimensionCount)(commitMetadata)
             .filter(file => file.revisionId == revisionID && fileNames.contains(file.path))
