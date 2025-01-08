@@ -40,6 +40,7 @@ import org.apache.hudi.common.model.HoodieRecord
 import org.apache.hudi.common.model.HoodieTableType.COPY_ON_WRITE
 import org.apache.hudi.common.model.HoodieTableType.MERGE_ON_READ
 import org.apache.hudi.common.model.WriteOperationType
+import org.apache.hudi.common.table.timeline.versioning.v2.InstantGeneratorV2
 import org.apache.hudi.common.table.timeline.HoodieActiveTimeline
 import org.apache.hudi.common.table.timeline.HoodieInstant
 import org.apache.hudi.common.table.timeline.HoodieInstant.State
@@ -253,14 +254,15 @@ private[hudi] case class HudiMetadataWriter(
 
     val commitActionType = CommitUtils.getCommitActionType(operationType, metaClient.getTableType)
 
-    val instantTime = HoodieActiveTimeline.createNewInstantTime
+    val instantTime = hudiClient.createNewInstantTime()
     hudiClient.startCommitWithTime(instantTime, commitActionType)
     hudiClient.setOperationType(operationType)
     hudiClient.preWrite(instantTime, operationType, metaClient)
 
     val hoodieTable = HoodieSparkTable.create(hudiClient.getConfig, hudiClient.getEngineContext)
     val timeLine = hoodieTable.getActiveTimeline
-    val requested = new HoodieInstant(State.REQUESTED, commitActionType, instantTime)
+    val instantGenerator = metaClient.getTimelineLayout.getInstantGenerator
+    val requested = instantGenerator.createNewInstant(State.REQUESTED, commitActionType, instantTime)
     val metadata = new HoodieCommitMetadata
     metadata.setOperationType(operationType)
     timeLine.transitionRequestedToInflight(
@@ -333,14 +335,14 @@ private[hudi] case class HudiMetadataWriter(
     val hudiClient = createHoodieClient()
     val commitActionType =
       CommitUtils.getCommitActionType(WriteOperationType.ALTER_SCHEMA, metaClient.getTableType)
-    val instantTime = HoodieActiveTimeline.createNewInstantTime
-
+    val instantTime = hudiClient.createNewInstantTime()
     hudiClient.startCommitWithTime(instantTime, commitActionType)
     hudiClient.preWrite(instantTime, WriteOperationType.ALTER_SCHEMA, metaClient)
 
     val hoodieTable = HoodieSparkTable.create(hudiClient.getConfig, hudiClient.getEngineContext)
     val timeLine = hoodieTable.getActiveTimeline
-    val requested = new HoodieInstant(State.REQUESTED, commitActionType, instantTime)
+    val instantGenerator = metaClient.getTimelineLayout.getInstantGenerator
+    val requested = instantGenerator.createNewInstant(State.REQUESTED, commitActionType, instantTime)
     val metadata = new HoodieCommitMetadata
     metadata.setOperationType(WriteOperationType.ALTER_SCHEMA)
     timeLine.transitionRequestedToInflight(
@@ -381,14 +383,14 @@ private[hudi] case class HudiMetadataWriter(
 
     val hasPartitionMetadata = HoodiePartitionMetadata.hasPartitionMetadata(
       metaClient.getStorage,
-      metaClient.getBasePathV2)
+      metaClient.getBasePath)
     if (!hasPartitionMetadata) {
       val partitionMetadata =
         new HoodiePartitionMetadata(
           metaClient.getStorage,
           instantTime,
-          metaClient.getBasePathV2,
-          metaClient.getBasePathV2,
+          metaClient.getBasePath,
+          metaClient.getBasePath,
           hudi.common.util.Option.empty())
       partitionMetadata.trySave()
     }

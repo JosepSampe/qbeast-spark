@@ -11,6 +11,7 @@ import org.apache.hudi.common.model.HoodieCommitMetadata
 import org.apache.hudi.common.table.timeline.HoodieTimeline
 import org.apache.hudi.common.table.HoodieTableMetaClient
 import org.apache.hudi.common.table.TableSchemaResolver
+import org.apache.hudi.common.util.StringUtils.fromUTF8Bytes
 import org.apache.hudi.hadoop.fs.HadoopFSUtils
 import org.apache.hudi.storage.StoragePath
 import org.apache.hudi.AvroConversionUtils
@@ -129,11 +130,13 @@ case class HudiQbeastSnapshot(tableID: QTableID) extends QbeastSnapshot with Sta
 
     def processTimeline(timeline: HoodieTimeline): Unit = {
       timeline.filterCompletedInstants.getInstants.asScala
-        .filter(instant => commitTimes.contains(instant.getTimestamp))
+        .filter(instant => commitTimes.contains(instant.getCompletionTime))
         .foreach { instant =>
           val commitMetadataBytes = timeline.getInstantDetails(instant).get()
           val commitMetadata =
-            HoodieCommitMetadata.fromBytes(commitMetadataBytes, classOf[HoodieCommitMetadata])
+            HoodieCommitMetadata.fromJsonString(
+              fromUTF8Bytes(commitMetadataBytes),
+              classOf[HoodieCommitMetadata])
           val indexFiles = HudiQbeastFileUtils
             .fromCommitFile(dimensionCount)(commitMetadata)
             .filter(file => file.revisionId == revisionID && fileNames.contains(file.path))

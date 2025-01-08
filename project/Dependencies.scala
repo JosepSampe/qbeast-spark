@@ -25,6 +25,6 @@ object Dependencies {
 
   val hudi = "org.apache.hudi" %% ("hudi-spark" + sparkVersion.replaceAll(
     "\\.[0-9]+$",
-    "") + "-bundle") % "0.15.0"
+    "") + "-bundle") % "1.0.0"
 
 }

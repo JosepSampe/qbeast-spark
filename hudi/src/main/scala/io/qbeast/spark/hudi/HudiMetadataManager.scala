@@ -149,7 +149,7 @@ object HudiMetadataManager extends MetadataManager {
     val properties = TypedProperties.fromMap(tableConfigs.asJava)
 
     HoodieTableMetaClient
-      .withPropertyBuilder()
+      .newTableBuilder()
       .setTableType(HoodieTableType.COPY_ON_WRITE)
       .setBaseFileFormat(HoodieFileFormat.PARQUET.name())
       .setCommitTimezone(HoodieTimelineTimeZone.LOCAL)
