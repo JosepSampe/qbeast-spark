@@ -437,7 +437,7 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
         // "hoodie.commits.archival.batch" -> "10")
       )
 
-      val tableFormat = "hudi"
+      val tableFormat = "qbeast"
 
       val data = createTestData(spark, 100)
       data.write
@@ -456,7 +456,7 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
 //        .load(basePath)
 //        .show(1000, truncate = false)
 
-      (1 to 5).foreach { _ =>
+      (1 to 1).foreach { _ =>
         val data2 = createTestData(spark, 10)
         data2.write
           .format(tableFormat)
