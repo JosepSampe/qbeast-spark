@@ -64,8 +64,9 @@ object HudiRollupDataWriter extends RollupDataWriter {
       HoodieRecord.FILENAME_METADATA_FIELD)
       .map(StructField(_, StringType, nullable = false))
 
-    val hudiSchema = StructType(metadataFields ++ schema.fields)
     val containsHudiMetadata = schema.fieldNames.contains(HoodieRecord.COMMIT_TIME_METADATA_FIELD)
+    val hudiSchema =
+      if (containsHudiMetadata) schema else StructType(metadataFields ++ schema.fields)
     val processRow = getProcessRow(commitTime, containsHudiMetadata)
 
     val filesAndStats =
@@ -128,7 +129,6 @@ object HudiRollupDataWriter extends RollupDataWriter {
         UTF8String.fromString(fileName),
         row,
         if (containsHudiMetadata) true else false)
-
       (updatedRow, fileName)
     }
   }
