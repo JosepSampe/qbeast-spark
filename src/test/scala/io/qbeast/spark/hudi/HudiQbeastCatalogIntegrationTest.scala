@@ -413,6 +413,149 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
 
     }
 
+  // --------------
+
+  it should
+    "write qbeast files with metyadat fields" in withExtendedSparkAndTmpDir(hudiSparkConf) {
+      (spark, tmpDir) =>
+        val tableName: String = "hudi_table_v1"
+        val currentPath = Paths.get("").toAbsolutePath.toString
+        val basePath = s"$currentPath/spark-warehouse/$tableName"
+
+        removeDirectory(basePath)
+
+        val hudiOptions = Map(
+          "columnsToIndex" -> "id",
+          "hoodie.table.name" -> tableName,
+          "hoodie.metadata.enable" -> "true")
+
+        val tableFormat = "qbeast"
+
+        val schema = StructType(
+          Seq(
+            StructField("_hoodie_commit_time", StringType, nullable = false),
+            StructField("_hoodie_commit_seqno", StringType, nullable = false),
+            StructField("_hoodie_record_key", StringType, nullable = false),
+            StructField("_hoodie_partition_path", StringType, nullable = true),
+            StructField("_hoodie_file_name", StringType, nullable = false),
+            StructField("id", IntegerType, nullable = false),
+            StructField("name", StringType, nullable = false),
+            StructField("age", IntegerType, nullable = false)))
+
+        // Create data
+        val data = Seq(
+          Row(
+            "20250110111943697",
+            "20250110111943697_0_1",
+            "20250110111943697_0_1",
+            "",
+            "c93ddd88-9cbe-443b-904c-1e09f562cf68-0_0-27-0_20250110111943697.parquet",
+            1,
+            "Eva",
+            29),
+          Row(
+            "20250110111943697",
+            "20250110111943697_0_2",
+            "20250110111943697_0_2",
+            "",
+            "c93ddd88-9cbe-443b-904c-1e09f562cf68-0_0-27-0_20250110111943697.parquet",
+            2,
+            "Alice",
+            45),
+          Row(
+            "20250110111943697",
+            "20250110111943697_0_3",
+            "20250110111943697_0_3",
+            "",
+            "c93ddd88-9cbe-443b-904c-1e09f562cf68-0_0-27-0_20250110111943697.parquet",
+            3,
+            "Hannah",
+            29),
+          Row(
+            "20250110111943697",
+            "20250110111943697_0_4",
+            "20250110111943697_0_4",
+            "",
+            "c93ddd88-9cbe-443b-904c-1e09f562cf68-0_0-27-0_20250110111943697.parquet",
+            4,
+            "David",
+            31),
+          Row(
+            "20250110111943697",
+            "20250110111943697_0_5",
+            "20250110111943697_0_5",
+            "",
+            "c93ddd88-9cbe-443b-904c-1e09f562cf68-0_0-27-0_20250110111943697.parquet",
+            5,
+            "Hannah",
+            28),
+          Row(
+            "20250110111943697",
+            "20250110111943697_0_6",
+            "20250110111943697_0_6",
+            "",
+            "c93ddd88-9cbe-443b-904c-1e09f562cf68-0_0-27-0_20250110111943697.parquet",
+            6,
+            "Isaac",
+            21),
+          Row(
+            "20250110111943697",
+            "20250110111943697_0_7",
+            "20250110111943697_0_7",
+            "",
+            "c93ddd88-9cbe-443b-904c-1e09f562cf68-0_0-27-0_20250110111943697.parquet",
+            7,
+            "Isaac",
+            20),
+          Row(
+            "20250110111943697",
+            "20250110111943697_0_8",
+            "20250110111943697_0_8",
+            "",
+            "c93ddd88-9cbe-443b-904c-1e09f562cf68-0_0-27-0_20250110111943697.parquet",
+            8,
+            "Charlie",
+            47),
+          Row(
+            "20250110111943697",
+            "20250110111943697_0_9",
+            "20250110111943697_0_9",
+            "",
+            "c93ddd88-9cbe-443b-904c-1e09f562cf68-0_0-27-0_20250110111943697.parquet",
+            9,
+            "David",
+            33),
+          Row(
+            "20250110111943697",
+            "20250110111943697_0_10",
+            "20250110111943697_0_10",
+            "",
+            "c93ddd88-9cbe-443b-904c-1e09f562cf68-0_0-27-0_20250110111943697.parquet",
+            10,
+            "Isaac",
+            25))
+
+        val df = spark.createDataFrame(spark.sparkContext.parallelize(data), schema)
+        df.write
+          .format(tableFormat)
+          .mode("overwrite")
+          .options(hudiOptions)
+          .save(basePath)
+
+        println("--- COUNTING ROWS ---")
+        println(
+          spark.read
+            .format(tableFormat)
+            .load(basePath)
+            .count())
+
+        println("--- READING ---")
+        spark.read
+          .format(tableFormat)
+          .load(basePath)
+          .show(numRows = 10, truncate = false)
+    }
+
   it should
     "write qbeast files" in withExtendedSparkAndTmpDir(hudiSparkConf) { (spark, tmpDir) =>
       val tableName: String = "hudi_table_v1"
@@ -447,12 +590,12 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
 
       val tableFormat = "qbeast"
 
-//      val data = createTestData(spark, 100)
-//      data.write
-//        .format(tableFormat)
-//        .mode("overwrite")
-//        .options(hudiOptions)
-//        .save(basePath)
+      val data = createTestData(spark, 100)
+      data.write
+        .format(tableFormat)
+        .mode("overwrite")
+        .options(hudiOptions)
+        .save(basePath)
 
 //      spark.read
 //        .format(tableFormat)
@@ -464,126 +607,14 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
 //        .load(basePath)
 //        .show(1000, truncate = false)
 
-//      (1 to 5).foreach { _ =>
-//        val data2 = createTestData(spark, 10)
-//        data2.write
-//          .format(tableFormat)
-//          .mode("append")
-//          .options(hudiOptions)
-//          .save(basePath)
-//      }
-
-      // Define schema
-      val schema = StructType(
-        Seq(
-          StructField("_hoodie_commit_time", StringType, nullable = false),
-          StructField("_hoodie_commit_seqno", StringType, nullable = false),
-          StructField("_hoodie_record_key", StringType, nullable = false),
-          StructField("_hoodie_partition_path", StringType, nullable = true),
-          StructField("_hoodie_file_name", StringType, nullable = false),
-          StructField("id", IntegerType, nullable = false),
-          StructField("name", StringType, nullable = false),
-          StructField("age", IntegerType, nullable = false)))
-
-      // Create data
-      val data = Seq(
-        Row(
-          "20250110111943697",
-          "20250110111943697_0_1",
-          "20250110111943697_0_1",
-          "",
-          "c93ddd88-9cbe-443b-904c-1e09f562cf68-0_0-27-0_20250110111943697.parquet",
-          1,
-          "Eva",
-          29),
-        Row(
-          "20250110111943697",
-          "20250110111943697_0_2",
-          "20250110111943697_0_2",
-          "",
-          "c93ddd88-9cbe-443b-904c-1e09f562cf68-0_0-27-0_20250110111943697.parquet",
-          2,
-          "Alice",
-          45),
-        Row(
-          "20250110111943697",
-          "20250110111943697_0_3",
-          "20250110111943697_0_3",
-          "",
-          "c93ddd88-9cbe-443b-904c-1e09f562cf68-0_0-27-0_20250110111943697.parquet",
-          3,
-          "Hannah",
-          29),
-        Row(
-          "20250110111943697",
-          "20250110111943697_0_4",
-          "20250110111943697_0_4",
-          "",
-          "c93ddd88-9cbe-443b-904c-1e09f562cf68-0_0-27-0_20250110111943697.parquet",
-          4,
-          "David",
-          31),
-        Row(
-          "20250110111943697",
-          "20250110111943697_0_5",
-          "20250110111943697_0_5",
-          "",
-          "c93ddd88-9cbe-443b-904c-1e09f562cf68-0_0-27-0_20250110111943697.parquet",
-          5,
-          "Hannah",
-          28),
-        Row(
-          "20250110111943697",
-          "20250110111943697_0_6",
-          "20250110111943697_0_6",
-          "",
-          "c93ddd88-9cbe-443b-904c-1e09f562cf68-0_0-27-0_20250110111943697.parquet",
-          6,
-          "Isaac",
-          21),
-        Row(
-          "20250110111943697",
-          "20250110111943697_0_7",
-          "20250110111943697_0_7",
-          "",
-          "c93ddd88-9cbe-443b-904c-1e09f562cf68-0_0-27-0_20250110111943697.parquet",
-          7,
-          "Isaac",
-          20),
-        Row(
-          "20250110111943697",
-          "20250110111943697_0_8",
-          "20250110111943697_0_8",
-          "",
-          "c93ddd88-9cbe-443b-904c-1e09f562cf68-0_0-27-0_20250110111943697.parquet",
-          8,
-          "Charlie",
-          47),
-        Row(
-          "20250110111943697",
-          "20250110111943697_0_9",
-          "20250110111943697_0_9",
-          "",
-          "c93ddd88-9cbe-443b-904c-1e09f562cf68-0_0-27-0_20250110111943697.parquet",
-          9,
-          "David",
-          33),
-        Row(
-          "20250110111943697",
-          "20250110111943697_0_10",
-          "20250110111943697_0_10",
-          "",
-          "c93ddd88-9cbe-443b-904c-1e09f562cf68-0_0-27-0_20250110111943697.parquet",
-          10,
-          "Isaac",
-          25))
-
-      val df = spark.createDataFrame(spark.sparkContext.parallelize(data), schema)
-      df.write
-        .format(tableFormat)
-        .mode("overwrite")
-        .options(hudiOptions)
-        .save(basePath)
+      (1 to 5).foreach { _ =>
+        val data2 = createTestData(spark, 10)
+        data2.write
+          .format(tableFormat)
+          .mode("append")
+          .options(hudiOptions)
+          .save(basePath)
+      }
 
       println("--- COUNTING ROWS ---")
       println(
