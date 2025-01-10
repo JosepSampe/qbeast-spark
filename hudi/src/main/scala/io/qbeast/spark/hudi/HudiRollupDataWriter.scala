@@ -56,23 +56,24 @@ object HudiRollupDataWriter extends RollupDataWriter {
 
     // Add the required Hudi metadata columns to the schema and create an extended schema
     // by appending them to the original schema fields.
-    val newColumns = Seq(
+    val metadataFields = Seq(
       HoodieRecord.COMMIT_TIME_METADATA_FIELD,
       HoodieRecord.COMMIT_SEQNO_METADATA_FIELD,
       HoodieRecord.RECORD_KEY_METADATA_FIELD,
       HoodieRecord.PARTITION_PATH_METADATA_FIELD,
       HoodieRecord.FILENAME_METADATA_FIELD)
       .map(StructField(_, StringType, nullable = false))
-    val hudiSchema = StructType(newColumns ++ schema.fields)
 
-    val processRow = getProcessRow(commitTime)
+    val hudiSchema = StructType(metadataFields ++ schema.fields)
+    val containsHudiMetadata = schema.fieldNames.contains(HoodieRecord.COMMIT_TIME_METADATA_FIELD)
+    val processRow = getProcessRow(commitTime, containsHudiMetadata)
 
     val filesAndStats =
       doWrite(tableId, hudiSchema, extendedData, tableChanges, statsTrackers, Some(processRow))
     filesAndStats.map(_._1)
   }
 
-  private def getProcessRow(commitTime: String): ProcessRows = {
+  private def getProcessRow(commitTime: String, containsHudiMetadata: Boolean): ProcessRows = {
     // This function adds the columns required by Hudi to the given row,
     // as specified in the extended schema, and returns a tuple containing
     // the modified row and the corresponding target filename.
@@ -87,6 +88,7 @@ object HudiRollupDataWriter extends RollupDataWriter {
       // HoodieBulkInsertDataInternalWriter
       // BulkInsertDataInternalWriterHelper
       // HoodieRowCreateHandle
+      // HoodieDatasetBulkInsertHelper
       val ctx = TaskContext.get()
       val partId = ctx.partitionId()
       val taskId = ctx.taskAttemptId()
@@ -110,14 +112,22 @@ object HudiRollupDataWriter extends RollupDataWriter {
       val recNo = LOCAL_REC_NO.getOrElseUpdate(partId.toString, new AtomicLong(1))
       val recordKey = commitTime + "_" + partId + "_" + recNo.getAndIncrement
 
+      def getFieldOrDefault(fieldOrd: Int, default: String): String =
+        if (containsHudiMetadata) row.getUTF8String(fieldOrd).toString else default
+
+      val rowCommitTime =
+        getFieldOrDefault(HoodieRecord.COMMIT_TIME_METADATA_FIELD_ORD, commitTime)
+      val rowSeqId = getFieldOrDefault(HoodieRecord.COMMIT_SEQNO_METADATA_FIELD_ORD, seqId)
+      val rowRecordKey = getFieldOrDefault(HoodieRecord.RECORD_KEY_META_FIELD_ORD, recordKey)
+
       val updatedRow = new HoodieInternalRow(
-        UTF8String.fromString(commitTime),
-        UTF8String.fromString(seqId),
-        UTF8String.fromString(recordKey),
+        UTF8String.fromString(rowCommitTime),
+        UTF8String.fromString(rowSeqId),
+        UTF8String.fromString(rowRecordKey),
         UTF8String.fromString(""),
         UTF8String.fromString(fileName),
         row,
-        false)
+        if (containsHudiMetadata) true else false)
 
       (updatedRow, fileName)
     }

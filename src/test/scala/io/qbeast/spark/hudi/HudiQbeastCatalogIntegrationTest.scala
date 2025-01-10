@@ -427,7 +427,9 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
         // "hoodie.metadata.record.index.enable" -> "true",
 
         // "hoodie.populate.meta.fields" -> "false",
-        // "hoodie.table.recordkey.fields" -> "id"
+        // "hoodie.table.recordkey.fields" -> "id",
+        // "hoodie.sql.bulk.insert.enable " -> "true",
+        // "hoodie.sql.insert.mode" -> "non-strict"
 
         // "hoodie.spark.sql.optimized.writes.enable" -> "true"
 
@@ -500,7 +502,7 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
         metadataDF.printSchema()
         metadataDF.show(numRows = 100, truncate = false)
 
-        val tableFormat = "hudi"
+        val tableFormat = "qbeast"
 
         spark.read
           .format(tableFormat)
