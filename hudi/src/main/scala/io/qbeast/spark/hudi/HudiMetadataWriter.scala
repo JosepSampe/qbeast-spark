@@ -51,6 +51,7 @@ import org.apache.hudi.config.HoodieWriteConfig
 import org.apache.hudi.internal.schema.convert.AvroInternalSchemaConverter
 import org.apache.hudi.internal.schema.utils.SerDeHelper
 import org.apache.hudi.internal.schema.InternalSchema
+import org.apache.hudi.keygen.constant.KeyGeneratorType
 import org.apache.hudi.metadata.HoodieBackedTableMetadata
 import org.apache.hudi.metadata.HoodieTableMetadata
 import org.apache.hudi.storage.StoragePath
@@ -492,10 +493,11 @@ private[hudi] case class HudiMetadataWriter(
     }
     val mergedParams = mutable.Map.empty ++ HoodieWriterUtils.parametersWithWriteDefaults(
       translatedOptsWithMappedTableConfig.toMap)
-    if (!mergedParams.contains(HoodieTableConfig.KEY_GENERATOR_CLASS_NAME.key)
-      && mergedParams.contains(KEYGENERATOR_CLASS_NAME.key)) {
-      mergedParams(HoodieTableConfig.KEY_GENERATOR_CLASS_NAME.key) = mergedParams(
-        DataSourceWriteOptions.KEYGENERATOR_CLASS_NAME.key)
+    if (mergedParams.contains(KEYGENERATOR_CLASS_NAME.key) && !mergedParams.contains(
+        HoodieTableConfig.KEY_GENERATOR_TYPE.key)) {
+      mergedParams(HoodieTableConfig.KEY_GENERATOR_TYPE.key) = KeyGeneratorType
+        .fromClassName(mergedParams(DataSourceWriteOptions.KEYGENERATOR_CLASS_NAME.key))
+        .name
     }
     // use preCombineField to fill in PAYLOAD_ORDERING_FIELD_PROP_KEY
     if (mergedParams.contains(PRECOMBINE_FIELD.key())) {
