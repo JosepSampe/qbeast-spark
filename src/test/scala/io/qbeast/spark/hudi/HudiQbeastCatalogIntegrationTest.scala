@@ -733,7 +733,7 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
     "optimize qbeast table" in withExtendedSparkAndTmpDir(hudiSparkConf) { (spark, tmpDir) =>
       val tableName: String = "hudi_table_optimize"
       val currentPath = Paths.get("").toAbsolutePath.toString
-      val basePath = s"$currentPath/spark-josep/$tableName"
+      val basePath = s"$currentPath/spark-warehouse/$tableName"
 
       removeDirectory(basePath)
 
