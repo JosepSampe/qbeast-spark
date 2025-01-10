@@ -429,6 +429,8 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
         // "hoodie.populate.meta.fields" -> "false",
         // "hoodie.table.recordkey.fields" -> "id"
 
+        // "hoodie.spark.sql.optimized.writes.enable" -> "true"
+
         // "hoodie.keep.max.commits" -> "5",
         // "hoodie.keep.min.commits" -> "1",
         // "hoodie.clean.automatic" -> "false",
@@ -456,7 +458,7 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
 //        .load(basePath)
 //        .show(1000, truncate = false)
 
-      (1 to 1).foreach { _ =>
+      (1 to 5).foreach { _ =>
         val data2 = createTestData(spark, 10)
         data2.write
           .format(tableFormat)

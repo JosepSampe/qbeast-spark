@@ -56,29 +56,19 @@ object HudiRollupDataWriter extends RollupDataWriter {
 
     // Add the required Hudi metadata columns to the schema and create an extended schema
     // by appending them to the original schema fields.
-    val metadataFields = Seq(
+    val newColumns = Seq(
       HoodieRecord.COMMIT_TIME_METADATA_FIELD,
       HoodieRecord.COMMIT_SEQNO_METADATA_FIELD,
       HoodieRecord.RECORD_KEY_METADATA_FIELD,
       HoodieRecord.PARTITION_PATH_METADATA_FIELD,
       HoodieRecord.FILENAME_METADATA_FIELD)
+      .map(StructField(_, StringType, nullable = false))
+    val hudiSchema = StructType(newColumns ++ schema.fields)
 
-    def extendSchema(schema: StructType): StructType = {
-      val newColumns = metadataFields.map(StructField(_, StringType, nullable = false))
-      StructType(newColumns ++ schema.fields)
-    }
-
-    val (schemaToUse, processRowOpt) =
-      if (!schema.fieldNames.contains(HoodieRecord.COMMIT_TIME_METADATA_FIELD)) {
-        val newSchema = extendSchema(schema)
-        val processRow = getProcessRow(commitTime)
-        (newSchema, Some(processRow))
-      } else {
-        (schema, None)
-      }
+    val processRow = getProcessRow(commitTime)
 
     val filesAndStats =
-      doWrite(tableId, schemaToUse, extendedData, tableChanges, statsTrackers, processRowOpt)
+      doWrite(tableId, hudiSchema, extendedData, tableChanges, statsTrackers, Some(processRow))
     filesAndStats.map(_._1)
   }
 
