@@ -737,48 +737,50 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
 
       removeDirectory(basePath)
 
+      val tableFormat = "qbeast"
+
       val hudiOptions = Map(
+        "columnsToIndex" -> "id",
         "hoodie.table.name" -> tableName,
         "hoodie.metadata.enable" -> "true",
-        "hoodie.file.index.enable" -> "true",
-        "hoodie.metadata.index.column.stats.enable" -> "true")
+        "hoodie.file.index.enable" -> "false",
+        "hoodie.clean.commits.retained" -> "5",
+        "hoodie.metadata.index.column.stats.enable" -> "false")
 
-      val data = createTestData(spark, 1000)
-      data.write
-        .format("qbeast")
-        .mode("overwrite")
-        .options(hudiOptions)
-        .option("columnsToIndex", "id")
-        .save(basePath)
+//      val data = createTestData(spark, 1000)
+//      data.write
+//        .format(tableFormat)
+//        .mode("overwrite")
+//        .options(hudiOptions)
+//        .save(basePath)
 
-      val data2 = createTestData(spark, 500)
-      data2.write
-        .format("qbeast")
-        .mode("append")
-        .options(hudiOptions)
-        .option("columnsToIndex", "id")
-        .save(basePath)
+//      val data2 = createTestData(spark, 500)
+//      data2.write
+//        .format("qbeast")
+//        .mode("append")
+//        .options(hudiOptions)
+//        .save(basePath)
+//
+//      val data3 = createTestData(spark, 250)
+//      data3.write
+//        .format("qbeast")
+//        .mode("overwrite")
+//        .options(hudiOptions)
+//        .save(basePath)
 
-      val data3 = createTestData(spark, 250)
-      data3.write
-        .format("qbeast")
-        .mode("overwrite")
-        .options(hudiOptions)
-        .option("columnsToIndex", "id")
-        .save(basePath)
-
-      val qbeastTable = QbeastTable.forPath(spark, basePath)
-      println(qbeastTable.getIndexMetrics)
-      qbeastTable.optimize()
-
-      println("Appending 50 rows")
-      val data4 = createTestData(spark, 50)
-      data4.write
-        .format("qbeast")
-        .mode("append")
-        .options(hudiOptions)
-        .option("columnsToIndex", "id")
-        .save(basePath)
+      (1 to 10).foreach { _ =>
+        (1 to 1).foreach { _ =>
+          val data2 = createTestData(spark, 100)
+          data2.write
+            .format(tableFormat)
+            .mode("append")
+            .options(hudiOptions)
+            .save(basePath)
+        }
+        val qbeastTable = QbeastTable.forPath(spark, basePath)
+        // println(qbeastTable.getIndexMetrics)
+        qbeastTable.optimize()
+      }
 
       println("Querying. Total rows:")
       println(
