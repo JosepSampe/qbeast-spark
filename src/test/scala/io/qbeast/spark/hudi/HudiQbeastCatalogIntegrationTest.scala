@@ -768,9 +768,9 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
 //        .options(hudiOptions)
 //        .save(basePath)
 
-      (1 to 10).foreach { _ =>
-        (1 to 1).foreach { _ =>
-          val data2 = createTestData(spark, 100)
+      (1 to 20).foreach { _ =>
+        (1 to 10).foreach { _ =>
+          val data2 = createTestData(spark, 1)
           data2.write
             .format(tableFormat)
             .mode("append")

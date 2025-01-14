@@ -151,17 +151,32 @@ case class HudiQbeastSnapshot(tableID: QTableID) extends QbeastSnapshot with Sta
             // the archive pipeline during the processing of this function. In such cases,
             // we can safely ignore it, as the commit will be handled properly by the coming
             // processTimeline(archivedTimeline) call below.
-            case _: HoodieIOException => // Do nothing
+            case _: HoodieIOException =>
+              println(s"--> ERROR: Could not find the commit time ${instant.requestedTime()}")
           }
 
         }
     }
 
+    println("---PROCESSED COMMITS---")
+    println(s"Current snapshot commits: ${commitTimes.length}")
     val activeTimeline = metaClient.getActiveTimeline
     processTimeline(activeTimeline)
+    println(s"Processed active timeline commits: ${processedCommitTimes.size}")
 
-    val archivedTimeline = metaClient.getArchivedTimeline(commitTimes.min)
-    processTimeline(archivedTimeline)
+    if (commitTimes.diff(processedCommitTimes.toSeq).nonEmpty) {
+      val archivedTimeline = metaClient.getArchivedTimeline(commitTimes.min, false)
+      processTimeline(archivedTimeline)
+      println(s"Processed active + archive timeline commits: ${processedCommitTimes.size}")
+    }
+
+    println("---TOTAL COMMITS ---")
+    println(
+      s"Active timeline commits: ${activeTimeline.filterCompletedInstants.getInstants.asScala.size}")
+    val archivedTimeline = metaClient.getArchivedTimeline()
+    println(
+      s"Archive timeline commits: ${archivedTimeline.filterCompletedInstants.getInstants.asScala.size}")
+    println("\n")
 
     // At this point, we verify that all Qbeast metadata is correctly loaded
     // from all the commit files associated with the Parquet files in this snapshot.
