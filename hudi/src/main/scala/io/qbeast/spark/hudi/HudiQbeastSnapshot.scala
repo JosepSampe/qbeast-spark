@@ -35,8 +35,8 @@ case class HudiQbeastSnapshot(tableID: QTableID) extends QbeastSnapshot with Sta
 
   override val basePath: Path = new Path(tableID.id)
 
-  private val spark = SparkSession.active
-  private val jsc = new JavaSparkContext(spark.sparkContext)
+  private lazy val spark = SparkSession.active
+  private lazy val jsc = new JavaSparkContext(spark.sparkContext)
 
   private lazy val metaClient: HoodieTableMetaClient = HoodieTableMetaClient
     .builder()
@@ -227,7 +227,7 @@ case class HudiQbeastSnapshot(tableID: QTableID) extends QbeastSnapshot with Sta
    * @return
    *   Sequence of FileStatusWithMetadata
    */
-  override def listStagingAreaFiles(
+  override def listUnindexedFiles(
       fileIndex: FileIndex,
       partitionFilters: Seq[Expression],
       dataFilters: Seq[Expression]): Seq[FileStatusWithMetadata] = {

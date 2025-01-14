@@ -161,7 +161,7 @@ trait QbeastSnapshot {
    * @return
    *   the FileIndex
    */
-  def listStagingAreaFiles(
+  def listUnindexedFiles(
       fileIndex: FileIndex,
       partitionFilters: Seq[Expression],
       dataFilters: Seq[Expression]): Seq[FileStatusWithMetadata]

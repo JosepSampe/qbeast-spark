@@ -260,7 +260,7 @@ case class DeltaQbeastSnapshot(tableID: QTableID) extends QbeastSnapshot with De
    * @return
    *   Sequence of FileStatusWithMetadata
    */
-  override def listStagingAreaFiles(
+  override def listUnindexedFiles(
       fileIndex: FileIndex,
       partitionFilters: Seq[Expression],
       dataFilters: Seq[Expression]): Seq[FileStatusWithMetadata] = {
