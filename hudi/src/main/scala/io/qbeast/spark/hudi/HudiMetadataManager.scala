@@ -28,6 +28,7 @@ import org.apache.hudi.common.model.HoodieTimelineTimeZone
 import org.apache.hudi.common.table.HoodieTableMetaClient
 import org.apache.hudi.config.HoodieWriteConfig
 import org.apache.hudi.hadoop.fs.HadoopFSUtils
+import org.apache.hudi.keygen.constant.KeyGeneratorType
 import org.apache.spark.sql.types.StructType
 import org.apache.spark.sql.SaveMode
 import org.apache.spark.sql.SparkSession
@@ -158,7 +159,7 @@ object HudiMetadataManager extends MetadataManager {
       .setCDCEnabled(false)
       .setPopulateMetaFields(true)
       .setUrlEncodePartitioning(false)
-      .setKeyGeneratorClassProp("org.apache.hudi.keygen.NonpartitionedKeyGenerator")
+      .setKeyGeneratorClassProp(KeyGeneratorType.NON_PARTITION.getClassName())
       .setDatabaseName("")
       .setPartitionFields("")
       .fromProperties(properties)

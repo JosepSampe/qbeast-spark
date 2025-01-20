@@ -567,11 +567,14 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
       val hudiOptions = Map(
         "columnsToIndex" -> "id",
         "hoodie.table.name" -> tableName,
-        "hoodie.metadata.enable" -> "true"
+        "hoodie.metadata.enable" -> "true",
         // "hoodie.file.index.enable" -> "true",
         // "hoodie.metadata.index.bloom.filter.enable" -> "true",
         // "hoodie.metadata.index.column.stats.enable" -> "true"
         // "hoodie.metadata.record.index.enable" -> "true",
+
+        "hoodie.datasource.write.recordkey.field" -> "id",
+        "hoodie.datasource.write.precombine.field" -> "name"
 
         // "hoodie.populate.meta.fields" -> "false",
         // "hoodie.table.recordkey.fields" -> "id",
@@ -586,7 +589,7 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
 
         // "hoodie.archive.automatic" -> "true",
         // "hoodie.commits.archival.batch" -> "10")
-      )
+      ).asJava
 
       val tableFormat = "qbeast"
 
@@ -607,8 +610,8 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
 //        .load(basePath)
 //        .show(1000, truncate = false)
 
-      (1 to 5).foreach { _ =>
-        val data2 = createTestData(spark, 10)
+      (1 to 59).foreach { _ =>
+        val data2 = createTestData(spark, 100)
         data2.write
           .format(tableFormat)
           .mode("append")
@@ -627,7 +630,7 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
       spark.read
         .format(tableFormat)
         .load(basePath)
-        .show(numRows = 10, truncate = false)
+        .show(numRows = 100, truncate = false)
 
       println("--- SAMPLING ---")
       spark.read
