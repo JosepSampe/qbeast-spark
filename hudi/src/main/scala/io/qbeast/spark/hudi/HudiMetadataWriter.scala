@@ -347,6 +347,8 @@ private[hudi] case class HudiMetadataWriter(
       .setBasePath(metadataPath)
       .build()
 
+    println("-------- UPDATING TABLE METADATA -------")
+
     val tableSchemaResolver = new TableSchemaResolver(metadataMetaClient)
     val originalSchema = tableSchemaResolver.getTableAvroSchemaFromLatestCommit(false).get
 
@@ -455,6 +457,8 @@ private[hudi] case class HudiMetadataWriter(
         fileRecord
       }
     }
+
+    println(fileRecords)
 
     val hoodieRecords: Seq[HoodieRecord[HoodieMetadataPayload]] = fileRecords.map { fileRecord =>
       val hoodieKey = new HoodieKey(fileRecord.get("key").toString, "files")
