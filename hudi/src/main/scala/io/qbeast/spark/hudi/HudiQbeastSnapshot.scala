@@ -28,6 +28,9 @@ import org.apache.spark.sql.DataFrame
 import org.apache.spark.sql.Dataset
 import org.apache.spark.sql.SparkSession
 
+import java.io.File
+import java.io.FileWriter
+import java.io.PrintWriter
 import scala.collection.mutable.ListBuffer
 import scala.jdk.CollectionConverters._
 
@@ -157,26 +160,30 @@ case class HudiQbeastSnapshot(tableID: QTableID) extends QbeastSnapshot with Sta
 
         }
     }
+    val logFile = new File("/tmp/qbeast_hudi_execution.log")
+    val writer =
+      new PrintWriter(new FileWriter(logFile, true))
+    writer.println("--- NEW ITERATION PROCESSED COMMITS---")
 
-    println("---PROCESSED COMMITS---")
-    println(s"Current snapshot commits: ${commitTimes.length}")
+    writer.println(s"- Current snapshot commits: ${commitTimes.length}")
     val activeTimeline = metaClient.getActiveTimeline
     processTimeline(activeTimeline)
-    println(s"Processed active timeline commits: ${processedCommitTimes.size}")
+    writer.println(s"- Processed active timeline commits: ${processedCommitTimes.size}")
 
     if (commitTimes.diff(processedCommitTimes.toSeq).nonEmpty) {
       val archivedTimeline = metaClient.getArchivedTimeline(commitTimes.min, false)
       processTimeline(archivedTimeline)
-      println(s"Processed active + archive timeline commits: ${processedCommitTimes.size}")
+      writer.println(
+        s"- Processed active + archive timeline commits: ${processedCommitTimes.size}")
     }
 
-    println("---TOTAL COMMITS ---")
-    println(
-      s"Active timeline commits: ${activeTimeline.filterCompletedInstants.getInstants.asScala.size}")
+    writer.println(
+      s"- Active timeline commits: ${activeTimeline.filterCompletedInstants.getInstants.asScala.size}")
     val archivedTimeline = metaClient.getArchivedTimeline()
-    println(
-      s"Archive timeline commits: ${archivedTimeline.filterCompletedInstants.getInstants.asScala.size}")
-    println("\n")
+    writer.println(
+      s"- Archive timeline commits: ${archivedTimeline.filterCompletedInstants.getInstants.asScala.size}")
+    writer.flush()
+    writer.close()
 
     // At this point, we verify that all Qbeast metadata is correctly loaded
     // from all the commit files associated with the Parquet files in this snapshot.

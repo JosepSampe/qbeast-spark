@@ -54,10 +54,13 @@ import org.apache.spark.sql.Row
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.SparkConf
 
+import java.io._
 import java.nio.file.Paths
 import java.util
 import scala.collection.JavaConverters._
 import scala.util.Random
+
+import sys.process._
 
 object HudiUtils {
 
@@ -557,24 +560,68 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
     }
 
   it should
+    "test growth of metadata" in withExtendedSparkAndTmpDir(hudiSparkConf) { (spark, tmpDir) =>
+      val tableName: String = "hudi_table_test_growth"
+      val currentPath = Paths.get("").toAbsolutePath.toString
+      val basePath = s"$currentPath/spark-warehouse/$tableName"
+
+      // removeDirectory(basePath)
+
+      val hudiOptions = Map(
+        "columnsToIndex" -> "id",
+        "hoodie.table.name" -> tableName,
+        "hoodie.metadata.enable" -> "false").asJava
+
+      val tableFormat = "qbeast"
+
+      val logFile = new File("/tmp/qbeast_hudi_execution.log")
+      val writer =
+        new PrintWriter(new FileWriter(logFile, true))
+
+      (1 to 300).foreach { _ =>
+        val data2 = createTestData(spark, 100)
+        data2.write
+          .format(tableFormat)
+          .mode("append")
+          .options(hudiOptions)
+          .save(basePath)
+
+        val timelinePath = s"$basePath/.hoodie/timeline"
+        val command = s"du -sh $timelinePath" #| "cut -f1"
+        val result = command.!!
+        writer.println(s"- Size of the .hoodie/timeline folder: $result")
+        writer.flush()
+      }
+      writer.close()
+
+      println("--- SNAPSHOT ROWS COUNT---")
+      val snapshotCount = spark.read
+        .format(tableFormat)
+        .load(basePath)
+        .count()
+      println(s"Snapshot record count: $snapshotCount")
+
+    }
+
+  it should
     "write qbeast files" in withExtendedSparkAndTmpDir(hudiSparkConf) { (spark, tmpDir) =>
       val tableName: String = "hudi_table_v1"
       val currentPath = Paths.get("").toAbsolutePath.toString
       val basePath = s"$currentPath/spark-warehouse/$tableName"
 
-      removeDirectory(basePath)
+      // removeDirectory(basePath)
 
       val hudiOptions = Map(
         "columnsToIndex" -> "id",
         "hoodie.table.name" -> tableName,
-        "hoodie.metadata.enable" -> "true",
+        "hoodie.metadata.enable" -> "true"
         // "hoodie.file.index.enable" -> "true",
         // "hoodie.metadata.index.bloom.filter.enable" -> "true",
         // "hoodie.metadata.index.column.stats.enable" -> "true"
         // "hoodie.metadata.record.index.enable" -> "true",
 
-        "hoodie.datasource.write.recordkey.field" -> "id",
-        "hoodie.datasource.write.precombine.field" -> "name"
+        // "hoodie.datasource.write.recordkey.field" -> "id",
+        // "hoodie.datasource.write.precombine.field" -> "name"
 
         // "hoodie.populate.meta.fields" -> "false",
         // "hoodie.table.recordkey.fields" -> "id",
@@ -610,7 +657,7 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
 //        .load(basePath)
 //        .show(1000, truncate = false)
 
-      (1 to 59).foreach { _ =>
+      (1 to 1).foreach { _ =>
         val data2 = createTestData(spark, 100)
         data2.write
           .format(tableFormat)
@@ -638,6 +685,47 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
         .load(basePath)
         .sample(0.1)
         .show(numRows = 10, truncate = false)
+
+    }
+
+  it should
+    "read qbeast table" in withExtendedSparkAndTmpDir(hudiSparkConf) { (spark, tmpDir) =>
+      val tableName: String = "hudi_table_v1"
+      val currentPath = Paths.get("").toAbsolutePath.toString
+      val basePath = s"$currentPath/spark-warehouse/$tableName"
+
+      val tableFormat = "qbeast"
+
+      println("--- SAMPLING ROWS ---")
+      spark.read
+        .format(tableFormat)
+        .load(basePath)
+        .sample(0.1)
+        .show(numRows = 10, truncate = false)
+
+      println("--- SNAPSHOT ROWS COUNT---")
+      val snapshotCount = spark.read
+        .format(tableFormat)
+        .load(basePath)
+        .count()
+      println(s"Snapshot record count: $snapshotCount")
+
+//      println("--- TIME TRAVEL ---")
+//      spark.read
+//        .format(tableFormat)
+//        .option("as.of.instant", "20250117143101426")
+//        .load(basePath)
+//        .sample(0.1)
+//        .show(numRows = 10, truncate = false)
+//
+//      println("--- TIME TRAVEL COUNT ---")
+//      val count = spark.read
+//        .format(tableFormat)
+//        .option("as.of.instant", "20250117143101426")
+//        .load(basePath)
+//        .count()
+//
+//      println(s"Time travel record count: $count")
 
     }
 
