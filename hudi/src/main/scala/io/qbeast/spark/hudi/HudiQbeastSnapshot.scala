@@ -185,6 +185,23 @@ case class HudiQbeastSnapshot(tableID: QTableID) extends QbeastSnapshot with Sta
     writer.flush()
     writer.close()
 
+//    var count = 0
+//
+//    archivedTimeline.filterCompletedInstants().getInstants.asScala.foreach { instant =>
+//      println(instant)
+//      if (!instant.toString.contains("clean")) {
+//        println(archivedTimeline.getInstantDetails(instant))
+//        val commitMetadataBytes = archivedTimeline.getInstantDetails(instant).get()
+//        val metadata = TimelineMetadataUtils.deserializeCommitMetadata(commitMetadataBytes)
+//        val commitMetadata =
+//          HoodieCommitMetadata.fromJsonString(metadata.toString, classOf[HoodieCommitMetadata])
+//        println(commitMetadata)
+//      }
+//      count = count + 1
+//    }
+//
+//    println(count)
+
     // At this point, we verify that all Qbeast metadata is correctly loaded
     // from all the commit files associated with the Parquet files in this snapshot.
     // If there are unprocessed commit times, it indicates an inconsistency,

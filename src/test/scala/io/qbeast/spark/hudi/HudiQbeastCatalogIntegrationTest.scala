@@ -565,7 +565,7 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
       val currentPath = Paths.get("").toAbsolutePath.toString
       val basePath = s"$currentPath/spark-warehouse/$tableName"
 
-      // removeDirectory(basePath)
+      removeDirectory(basePath)
 
       val hudiOptions = Map(
         "columnsToIndex" -> "id",
@@ -578,13 +578,19 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
       val writer =
         new PrintWriter(new FileWriter(logFile, true))
 
-      (1 to 300).foreach { _ =>
+      (1 to 200).zipWithIndex.foreach { case (_, index) =>
         val data2 = createTestData(spark, 100)
         data2.write
           .format(tableFormat)
           .mode("append")
           .options(hudiOptions)
           .save(basePath)
+
+        if ((index + 1) % 10 == 0) {
+          println(s"----- Optimizing ---- ${index + 1}")
+          val qbeastTable = QbeastTable.forPath(spark, basePath)
+          qbeastTable.optimize()
+        }
 
         val timelinePath = s"$basePath/.hoodie/timeline"
         val command = s"du -sh $timelinePath" #| "cut -f1"
@@ -594,12 +600,12 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
       }
       writer.close()
 
-      println("--- SNAPSHOT ROWS COUNT---")
-      val snapshotCount = spark.read
-        .format(tableFormat)
-        .load(basePath)
-        .count()
-      println(s"Snapshot record count: $snapshotCount")
+//      println("--- SNAPSHOT ROWS COUNT---")
+//      val snapshotCount = spark.read
+//        .format(tableFormat)
+//        .load(basePath)
+//        .count()
+//      println(s"Snapshot record count: $snapshotCount")
 
     }
 
@@ -690,7 +696,7 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
 
   it should
     "read qbeast table" in withExtendedSparkAndTmpDir(hudiSparkConf) { (spark, tmpDir) =>
-      val tableName: String = "hudi_table_v1"
+      val tableName: String = "hudi_table_test_growth"
       val currentPath = Paths.get("").toAbsolutePath.toString
       val basePath = s"$currentPath/spark-warehouse/$tableName"
 
@@ -703,12 +709,12 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
         .sample(0.1)
         .show(numRows = 10, truncate = false)
 
-      println("--- SNAPSHOT ROWS COUNT---")
-      val snapshotCount = spark.read
-        .format(tableFormat)
-        .load(basePath)
-        .count()
-      println(s"Snapshot record count: $snapshotCount")
+//      println("--- SNAPSHOT ROWS COUNT---")
+//      val snapshotCount = spark.read
+//        .format(tableFormat)
+//        .load(basePath)
+//        .count()
+//      println(s"Snapshot record count: $snapshotCount")
 
 //      println("--- TIME TRAVEL ---")
 //      spark.read

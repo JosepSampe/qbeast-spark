@@ -57,6 +57,8 @@ trait QbeastIntegrationTestSpec extends AnyFlatSpec with Matchers with DatasetCo
     .set("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
     .set("spark.kryo.registrator", "org.apache.spark.HoodieSparkKryoRegistrar")
     .set("spark.qbeast.tableFormat", "hudi")
+    .set("hoodie.clean.trigger.max.commits", "10")
+    .set("hoodie.clean.commits.retained", "10")
     .set("spark.sql.extensions", "io.qbeast.sql.HudiQbeastSparkSessionExtension")
     .set(SQLConf.V2_SESSION_CATALOG_IMPLEMENTATION.key, "io.qbeast.catalog.QbeastCatalog")
 
