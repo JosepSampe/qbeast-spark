@@ -578,7 +578,7 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
       val writer =
         new PrintWriter(new FileWriter(logFile, true))
 
-      (1 to 200).zipWithIndex.foreach { case (_, index) =>
+      (1 to 20).zipWithIndex.foreach { case (_, index) =>
         val data2 = createTestData(spark, 100)
         data2.write
           .format(tableFormat)
@@ -709,12 +709,12 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
         .sample(0.1)
         .show(numRows = 10, truncate = false)
 
-//      println("--- SNAPSHOT ROWS COUNT---")
-//      val snapshotCount = spark.read
-//        .format(tableFormat)
-//        .load(basePath)
-//        .count()
-//      println(s"Snapshot record count: $snapshotCount")
+      println("--- SNAPSHOT ROWS COUNT---")
+      val snapshotCount = spark.read
+        .format(tableFormat)
+        .load(basePath)
+        .count()
+      println(s"Snapshot record count: $snapshotCount")
 
 //      println("--- TIME TRAVEL ---")
 //      spark.read
@@ -738,13 +738,25 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
   it should
     "read qbeast hudi metadata files" in withExtendedSparkAndTmpDir(hudiSparkConf) {
       (spark, tmpDir) =>
-        val tableName: String = "hudi_table"
+        val tableName: String = "hudi_table_test_growth"
         val currentPath = Paths.get("").toAbsolutePath.toString
         val basePath = s"$currentPath/spark-warehouse/$tableName"
 
         val metadataDF = spark.read.format("hudi").load(s"$basePath/.hoodie/metadata")
         metadataDF.printSchema()
-        metadataDF.show(numRows = 100, truncate = false)
+
+        println("File System metadata: ")
+        metadataDF.select("filesystemMetadata").collect().foreach { row =>
+          val metadataMap = row.getAs[Map[String, Row]]("filesystemMetadata")
+          metadataMap.foreach { case (fileName, fileMetadata) =>
+            val size = fileMetadata.getAs[Long]("size")
+            val isDeleted = fileMetadata.getAs[Boolean]("isDeleted")
+            println(s"File: $fileName, Size: $size, IsDeleted: $isDeleted")
+          }
+        }
+
+        println("Column stats: ")
+        metadataDF.select("ColumnStatsMetadata").show(false)
 
         val tableFormat = "qbeast"
 
