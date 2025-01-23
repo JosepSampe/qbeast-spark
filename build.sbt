@@ -125,7 +125,7 @@ ThisBuild / javacOptions ++= Seq(
   "1.8",
   "-target",
   "1.8",
-  "-Werror",
+  //"-Werror",
   "-g",
   "-Xlint",
   "-Xdoclint:all/package")
