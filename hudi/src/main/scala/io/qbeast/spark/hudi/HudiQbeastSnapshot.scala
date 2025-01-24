@@ -120,6 +120,8 @@ case class HudiQbeastSnapshot(tableID: QTableID) extends QbeastSnapshot with Sta
     val indexFilesBuffer = ListBuffer[IndexFile]()
     val processedCommitTimes = scala.collection.mutable.Set[String]()
 
+    println("----> LOADING INDEX FILES")
+
     val inputFiles = loadFileIndex().inputFiles
 
     import spark.implicits._

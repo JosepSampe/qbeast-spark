@@ -419,7 +419,7 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
   // --------------
 
   it should
-    "write qbeast files with metyadat fields" in withExtendedSparkAndTmpDir(hudiSparkConf) {
+    "write qbeast files with metadata fields" in withExtendedSparkAndTmpDir(hudiSparkConf) {
       (spark, tmpDir) =>
         val tableName: String = "hudi_table_v1"
         val currentPath = Paths.get("").toAbsolutePath.toString
@@ -570,7 +570,11 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
       val hudiOptions = Map(
         "columnsToIndex" -> "id",
         "hoodie.table.name" -> tableName,
-        "hoodie.metadata.enable" -> "false").asJava
+        "hoodie.metadata.enable" -> "true",
+        "hoodie.file.index.enable" -> "true",
+        "hoodie.metadata.index.bloom.filter.enable" -> "false",
+        "hoodie.metadata.index.column.stats.enable" -> "true",
+        "hoodie.metadata.record.index.enable" -> "true").asJava
 
       val tableFormat = "qbeast"
 
@@ -671,14 +675,14 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
           .options(hudiOptions)
           .save(basePath)
       }
-
-      println("--- COUNTING ROWS ---")
-      println(
-        spark.read
-          .format(tableFormat)
-          .load(basePath)
-          .count())
-
+//
+//      println("--- COUNTING ROWS ---")
+//      println(
+//        spark.read
+//          .format(tableFormat)
+//          .load(basePath)
+//          .count())
+//
       println("--- READING ---")
       spark.read
         .format(tableFormat)
