@@ -15,6 +15,7 @@
  */
 package io.qbeast.spark.hudi
 
+import io.qbeast.core.model.QTableID
 import io.qbeast.table.QbeastTable
 import io.qbeast.QbeastIntegrationTestSpec
 import org.apache.avro.generic.GenericData
@@ -27,9 +28,11 @@ import org.apache.hudi.common.model.HoodieAvroRecord
 import org.apache.hudi.common.model.HoodieCommitMetadata
 import org.apache.hudi.common.model.HoodieKey
 import org.apache.hudi.common.model.HoodieRecord
+import org.apache.hudi.common.model.HoodieReplaceCommitMetadata
 import org.apache.hudi.common.model.WriteOperationType
 import org.apache.hudi.common.table.timeline.HoodieInstant.State
 import org.apache.hudi.common.table.timeline.HoodieTimeline
+import org.apache.hudi.common.table.timeline.TimelineMetadataUtils
 import org.apache.hudi.common.table.HoodieTableMetaClient
 import org.apache.hudi.common.util.collection.Pair
 import org.apache.hudi.common.util.CommitUtils
@@ -116,6 +119,40 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
       df: DataFrame,
       schema: Schema): JavaRDD[HoodieRecord[HoodieAvroPayload]] = {
     df.rdd.map(row => HudiUtils.createHoodieRecordFromRow(row, schema)).toJavaRDD()
+  }
+
+  private def loadMetaClient(tableID: QTableID): HoodieTableMetaClient = {
+    val spark = SparkSession.active
+    val hadoopConf = spark.sparkContext.hadoopConfiguration
+    HoodieTableMetaClient
+      .builder()
+      .setConf(HadoopFSUtils.getStorageConfWithCopy(hadoopConf))
+      .setBasePath(tableID.id)
+      .build()
+  }
+
+  def processTimeline(tableID: QTableID): Unit = {
+
+    val activeTimeline = loadMetaClient(tableID).getActiveTimeline
+
+    activeTimeline.filterCompletedInstants.getInstants.asScala
+      .foreach { instant =>
+        val commitMetadataBytes = activeTimeline.getInstantDetails(instant).get()
+        val metadata = TimelineMetadataUtils.deserializeCommitMetadata(commitMetadataBytes)
+        val commitMetadata =
+          HoodieCommitMetadata.fromJsonString(metadata.toString, classOf[HoodieCommitMetadata])
+
+        try {
+          val rcm = HoodieReplaceCommitMetadata.fromBytes(
+            commitMetadataBytes,
+            classOf[HoodieReplaceCommitMetadata])
+          println(rcm.toJsonString)
+        } catch {
+          case _: Exception =>
+            println(commitMetadata.toJsonString)
+        }
+
+      }
   }
 
   val hudiSparkConf: SparkConf = new SparkConf()
@@ -619,16 +656,16 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
       val currentPath = Paths.get("").toAbsolutePath.toString
       val basePath = s"$currentPath/spark-warehouse/$tableName"
 
-      // removeDirectory(basePath)
+      removeDirectory(basePath)
 
       val hudiOptions = Map(
         "columnsToIndex" -> "id",
         "hoodie.table.name" -> tableName,
-        "hoodie.metadata.enable" -> "true"
-        // "hoodie.file.index.enable" -> "true",
-        // "hoodie.metadata.index.bloom.filter.enable" -> "true",
-        // "hoodie.metadata.index.column.stats.enable" -> "true"
-        // "hoodie.metadata.record.index.enable" -> "true",
+        "hoodie.metadata.enable" -> "true",
+        "hoodie.file.index.enable" -> "true",
+        "hoodie.metadata.index.bloom.filter.enable" -> "true",
+        "hoodie.metadata.index.column.stats.enable" -> "true"
+        // "hoodie.metadata.record.index.enable" -> "true"
 
         // "hoodie.datasource.write.recordkey.field" -> "id",
         // "hoodie.datasource.write.precombine.field" -> "name"
@@ -648,7 +685,7 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
         // "hoodie.commits.archival.batch" -> "10")
       ).asJava
 
-      val tableFormat = "qbeast"
+      val tableFormat = "hudi"
 
       val data = createTestData(spark, 100)
       data.write
@@ -668,21 +705,29 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
 //        .show(1000, truncate = false)
 
       (1 to 1).foreach { _ =>
-        val data2 = createTestData(spark, 100)
+        val data2 = createTestData(spark, 50)
         data2.write
           .format(tableFormat)
           .mode("append")
           .options(hudiOptions)
           .save(basePath)
       }
-//
-//      println("--- COUNTING ROWS ---")
-//      println(
-//        spark.read
-//          .format(tableFormat)
-//          .load(basePath)
-//          .count())
-//
+
+      val data3 = createTestData(spark, 33)
+      data3.write
+        .format(tableFormat)
+        .mode("overwrite")
+        .options(hudiOptions)
+        .option("hoodie.datasource.write.operation", "insert_overwrite_table")
+        .save(basePath)
+
+      println("--- COUNTING ---")
+      println(
+        spark.read
+          .format(tableFormat)
+          .load(basePath)
+          .count())
+
       println("--- READING ---")
       spark.read
         .format(tableFormat)
@@ -695,6 +740,8 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
         .load(basePath)
         .sample(0.1)
         .show(numRows = 10, truncate = false)
+
+      processTimeline(QTableID(basePath))
 
     }
 
@@ -742,7 +789,7 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
   it should
     "read qbeast hudi metadata files" in withExtendedSparkAndTmpDir(hudiSparkConf) {
       (spark, tmpDir) =>
-        val tableName: String = "hudi_table_test_growth"
+        val tableName: String = "hudi_table_v1"
         val currentPath = Paths.get("").toAbsolutePath.toString
         val basePath = s"$currentPath/spark-warehouse/$tableName"
 
@@ -751,16 +798,23 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
 
         println("File System metadata: ")
         metadataDF.select("filesystemMetadata").collect().foreach { row =>
-          val metadataMap = row.getAs[Map[String, Row]]("filesystemMetadata")
-          metadataMap.foreach { case (fileName, fileMetadata) =>
-            val size = fileMetadata.getAs[Long]("size")
-            val isDeleted = fileMetadata.getAs[Boolean]("isDeleted")
-            println(s"File: $fileName, Size: $size, IsDeleted: $isDeleted")
-          }
+          println(row)
         }
 
         println("Column stats: ")
-        metadataDF.select("ColumnStatsMetadata").show(false)
+        metadataDF.select("ColumnStatsMetadata").collect().foreach { row =>
+          println(row)
+        }
+
+        println("BloomFilterMetadata: ")
+        metadataDF.select("BloomFilterMetadata").collect().foreach { row =>
+          println(row)
+        }
+
+        println("RecordIndexMetadata: ")
+        metadataDF.select("recordIndexMetadata").collect().foreach { row =>
+          println(row)
+        }
 
         val tableFormat = "qbeast"
 
@@ -842,6 +896,77 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
         metadataDF2.show(numRows = 100, truncate = false)
     }
 
+  it should "create, write, append, and delete data in Hudi table with student data" in withExtendedSparkAndTmpDir(
+    hudiSparkConf) { (spark, tmpDir) =>
+    val tableName: String = "hudi_table_upsert"
+    val currentPath = Paths.get("").toAbsolutePath.toString
+    val basePath = s"$currentPath/spark-warehouse/$tableName"
+
+    removeDirectory(basePath)
+
+    // Hudi table options
+    val hudiOptions = Map(
+      "columnsToIndex" -> "id",
+      "hoodie.table.name" -> tableName,
+      "hoodie.datasource.write.recordkey.field" -> "id",
+      "hoodie.datasource.write.precombine.field" -> "age",
+      "hoodie.datasource.write.operation" -> "upsert",
+      "hoodie.datasource.write.table.type" -> "MERGE_ON_READ",
+      "hoodie.metadata.enable" -> "true").asJava
+
+    val tableFormat = "hudi"
+
+    // Create initial data and write to Hudi table
+    val initialData = createTestData(spark, 10)
+    initialData.write
+      .format(tableFormat)
+      .mode("overwrite")
+      .options(hudiOptions)
+      .save(basePath)
+
+    println("--- INITIAL DATA WRITTEN ---")
+    spark.read.format(tableFormat).load(basePath).show(numRows = 100, truncate = false)
+
+    // Append more data
+    (1 to 2).foreach { _ =>
+      val additionalData = createTestData(spark, 10)
+      additionalData.write
+        .format(tableFormat)
+        .mode("append")
+        .options(hudiOptions)
+        .save(basePath)
+    }
+
+    println("--- DATA AFTER APPENDS ---")
+    spark.read.format(tableFormat).load(basePath).show(numRows = 100, truncate = false)
+
+    // Delete data
+    import spark.implicits._
+    val deleteData = Seq(1, 3).toDF("id") // IDs to delete
+    deleteData.write
+      .format(tableFormat)
+      .mode("append")
+      .options(hudiOptions)
+      .option("hoodie.datasource.write.operation", "delete")
+      .save(basePath)
+
+    println("--- DATA AFTER DELETION ---")
+    spark.read.format(tableFormat).load(basePath).show(numRows = 100, truncate = false)
+
+    // Append more data
+    (1 to 3).foreach { _ =>
+      val additionalData = createTestData(spark, 10)
+      additionalData.write
+        .format(tableFormat)
+        .mode("append")
+        .options(hudiOptions)
+        .save(basePath)
+    }
+
+    processTimeline(QTableID(basePath))
+
+  }
+
   it should
     "optimize qbeast table" in withExtendedSparkAndTmpDir(hudiSparkConf) { (spark, tmpDir) =>
       val tableName: String = "hudi_table_optimize"
@@ -860,12 +985,12 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
         "hoodie.clean.commits.retained" -> "5",
         "hoodie.metadata.index.column.stats.enable" -> "false")
 
-//      val data = createTestData(spark, 1000)
-//      data.write
-//        .format(tableFormat)
-//        .mode("overwrite")
-//        .options(hudiOptions)
-//        .save(basePath)
+      val data = createTestData(spark, 1000)
+      data.write
+        .format(tableFormat)
+        .mode("overwrite")
+        .options(hudiOptions)
+        .save(basePath)
 
 //      val data2 = createTestData(spark, 500)
 //      data2.write
@@ -881,8 +1006,8 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
 //        .options(hudiOptions)
 //        .save(basePath)
 
-      (1 to 20).foreach { _ =>
-        (1 to 10).foreach { _ =>
+      (1 to 1).foreach { _ =>
+        (1 to 1).foreach { _ =>
           val data2 = createTestData(spark, 1)
           data2.write
             .format(tableFormat)
@@ -898,12 +1023,12 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
       println("Querying. Total rows:")
       println(
         spark.read
-          .format("qbeast")
+          .format(tableFormat)
           .load(basePath)
           .count())
 
       spark.read
-        .format("qbeast")
+        .format(tableFormat)
         .load(basePath)
         .sample(0.1)
         .show(numRows = 10, truncate = false)
