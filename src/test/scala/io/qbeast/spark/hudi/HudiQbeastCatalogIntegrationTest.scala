@@ -48,6 +48,10 @@ import org.apache.hudi.DataSourceWriteOptions.SET_NULL_FOR_MISSING_COLUMNS
 import org.apache.hudi.HoodieCLIUtils
 import org.apache.spark.api.java.JavaRDD
 import org.apache.spark.api.java.JavaSparkContext
+import org.apache.spark.sql.functions.col
+import org.apache.spark.sql.functions.explode
+import org.apache.spark.sql.functions.input_file_name
+import org.apache.spark.sql.functions.map_values
 import org.apache.spark.sql.types.IntegerType
 import org.apache.spark.sql.types.StringType
 import org.apache.spark.sql.types.StructField
@@ -793,6 +797,34 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
         val currentPath = Paths.get("").toAbsolutePath.toString
         val basePath = s"$currentPath/spark-warehouse/$tableName"
 
+        val schema = org.apache.hudi.avro.model.HoodieCommitMetadata.getClassSchema
+        println(schema)
+
+        import spark.implicits._
+
+        spark
+          .emptyDataset[Student]
+          .write
+          .format("hudi")
+          .mode("overwrite")
+          .option("hoodie.table.name", "hudi_table_v1")
+          .save(basePath)
+
+        spark.read
+          .schema(AvroConversionUtils.convertAvroSchemaToStructType(schema))
+          .format("avro")
+          .load(basePath + "/.hoodie/timeline")
+          .withColumn("filename", input_file_name())
+          .filter(!col("filename").endsWith(".crc") &&
+            !col("filename").endsWith(".requested") &&
+            !col("filename").endsWith(".inflight"))
+          // .select(to_json(struct("*")).alias("json_row"))
+          .withColumn("commitMetadata", explode(map_values(col("partitionToWriteStats"))))
+          .select("commitMetadata")
+          .show(false)
+
+        sys.exit(0)
+
         val metadataDF = spark.read.format("hudi").load(s"$basePath/.hoodie/metadata")
         metadataDF.printSchema()
 
@@ -902,16 +934,16 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
     val currentPath = Paths.get("").toAbsolutePath.toString
     val basePath = s"$currentPath/spark-warehouse/$tableName"
 
-    removeDirectory(basePath)
+    // removeDirectory(basePath)
 
     // Hudi table options
     val hudiOptions = Map(
       "columnsToIndex" -> "id",
       "hoodie.table.name" -> tableName,
-      "hoodie.datasource.write.recordkey.field" -> "id",
+      // "hoodie.datasource.write.recordkey.field" -> "id",
       "hoodie.datasource.write.precombine.field" -> "age",
-      "hoodie.datasource.write.operation" -> "upsert",
-      "hoodie.datasource.write.table.type" -> "MERGE_ON_READ",
+      "hoodie.datasource.write.operation" -> "UPSERT",
+      "hoodie.datasource.write.table.type" -> "COPY_ON_WRITE",
       "hoodie.metadata.enable" -> "true").asJava
 
     val tableFormat = "hudi"
@@ -927,6 +959,8 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
     println("--- INITIAL DATA WRITTEN ---")
     spark.read.format(tableFormat).load(basePath).show(numRows = 100, truncate = false)
 
+    sys.exit(0)
+
     // Append more data
     (1 to 2).foreach { _ =>
       val additionalData = createTestData(spark, 10)
@@ -939,6 +973,8 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
 
     println("--- DATA AFTER APPENDS ---")
     spark.read.format(tableFormat).load(basePath).show(numRows = 100, truncate = false)
+
+    sys.exit(0)
 
     // Delete data
     import spark.implicits._
@@ -980,7 +1016,7 @@ class HudiQbeastCatalogIntegrationTest extends QbeastIntegrationTestSpec {
       val hudiOptions = Map(
         "columnsToIndex" -> "id",
         "hoodie.table.name" -> tableName,
-        "hoodie.metadata.enable" -> "true",
+        "hoodie.metadata.enable" -> "false",
         "hoodie.file.index.enable" -> "false",
         "hoodie.clean.commits.retained" -> "5",
         "hoodie.metadata.index.column.stats.enable" -> "false")
